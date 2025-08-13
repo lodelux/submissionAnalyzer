@@ -94,7 +94,7 @@ def main():
     for issue in issues.values():
         issue.reward = issue.points / totalPoints * prizePool
 
-    visualizeIssues(severity_label, args.contestId, issues)
+    visualizeIssues(severity_label, args.contestId, issues, args)
 
 
 def getValids(issues: list[Issue]):
@@ -112,6 +112,8 @@ def getInvalidsEscalated(issues: list[Issue]):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("contestId", type=int, help="Contest ID")
+    parser.add_argument("-e","--escalations", action="store_true", help="visualize escalations details")
+    parser.add_argument("-c", "--comments", action="store_true", help="count issues with at least 1 comment from LJ")
     return parser.parse_args()
 
 
@@ -155,7 +157,7 @@ def yesno(flag: bool) -> str:
     return "Y" if flag else "N"
 
 
-def visualizeIssues(severity_label, contestId, issues: dict[str, Issue]):
+def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     my_total_reward = sum(
         issue.reward for issue in issues.values() if issue.isSubmittedByUser
     )
@@ -212,36 +214,41 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue]):
         f"Total issues: {len(issues)} - your issues: {sum(1 for i in issues.values() if i.isSubmittedByUser and i.severity != 3)}/{sum(1 for i in issues.values() if i.isSubmittedByUser)}"
     )
     print("Your total expected reward: {:.2f}".format(my_total_reward))
-    print(
-        "Escalations: {} escalated | {} resolved | {} pending\n".format(
-            total_escalated, total_resolved, total_pending
+    if args.escalations:
+        print(
+            "Escalations: {} escalated | {} resolved | {} pending\n".format(
+                total_escalated, total_resolved, total_pending
+            )
         )
-    )
 
-    # Table header (now includes escalation columns)
-    print(
-        f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5} {'Esc':>5} {'Res':>5}"
-    )
+    header =  f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
+
+    if args.escalations:
+        header += f" {'Esc':>5} {'Res':>5}"
+
+    print(header)
     print("-" * 140)
 
     # Table rows
     for num, title, sev, dup_count, pts, rew, mine, esc, res in rows:
-        print(
-            f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5} {yesno(esc):>5} {yesno(res):>5}"
-        )
+        row = f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5}"
+        if args.escalations:
+            row +=f" {yesno(esc):>5} {yesno(res):>5}"
+        print(row)
 
     print("-" * 140)
-    print("\n=== Invalid issues (escalated) ===\n")
-    print(f"{'#':<5} {'Title':<73} {'Dup':>3} {'Mine':>5} {'Esc':>5} {'Res':>5}")
-    print("-" * 140)
-    for invalidEscalatedIssue in sorted(
-        getInvalidsEscalated(issues.values()),
-        key=lambda i: i.escalation["resolved"],
-        reverse=True,
-    ):
-        print(
-            f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
-        )
+    if args.escalations:
+        print("\n=== Invalid issues (escalated) ===\n")
+        print(header)
+        print("-" * 140)
+        for invalidEscalatedIssue in sorted(
+            getInvalidsEscalated(issues.values()),
+            key=lambda i: i.escalation["resolved"],
+            reverse=True,
+        ):
+            print(
+                f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
+            )
 
 
 if __name__ == "__main__":
