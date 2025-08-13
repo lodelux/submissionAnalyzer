@@ -28,7 +28,7 @@ class SherlockAPI:
         return self._get_json(
             f"https://audits.sherlock.xyz/api/issue/{issueId}/discussion"
         )
-    
+
     def getContest(self):
         return self._get_json(
             f"https://audits.sherlock.xyz/api/contests/{self.contest_id}"
@@ -101,6 +101,14 @@ def getValids(issues: list[Issue]):
     return [issue for issue in issues if issue.severity == 1 or issue.severity == 2]
 
 
+def getInvalidsEscalated(issues: list[Issue]):
+    return [
+        issue
+        for issue in issues
+        if issue.severity == 3 and issue.escalation["escalated"]
+    ]
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("contestId", type=int, help="Contest ID")
@@ -116,7 +124,7 @@ def addJudgingDetails(issues: dict[str, Issue], families):
         mainIssue.isSubmittedByUser = mainDetails["was_submitted_by_user"]
         mainIssue.isMain = True
         mainIssue.severity = familySeverity
-        mainIssue.escalation["escalated"] = mainDetails["has_escalation_comment"] 
+        mainIssue.escalation["escalated"] = mainDetails["has_escalation_comment"]
         mainIssue.escalation["resolved"] = mainDetails["escalation_resolved"]
 
         for dupDetails in family["duplicates"]:
@@ -172,14 +180,17 @@ def visualizeIssues(severity_label, contestId, issues):
         flattenedFamily = validIssue.duplicates.copy()
         flattenedFamily.append(validIssue)
 
-        family_escalated = (
-            validIssue.escalation["escalated"]
-            or any(d.escalation["escalated"] for d in validIssue.duplicates)
+        family_escalated = validIssue.escalation["escalated"] or any(
+            d.escalation["escalated"] for d in validIssue.duplicates
         )
         if not family_escalated:
             family_resolved = False
         else:
-            family_resolved = all(i.escalation["resolved"] for i in flattenedFamily if i.escalation["escalated"])
+            family_resolved = all(
+                i.escalation["resolved"]
+                for i in flattenedFamily
+                if i.escalation["escalated"]
+            )
 
         rows.append(
             (
@@ -206,19 +217,24 @@ def visualizeIssues(severity_label, contestId, issues):
 
     # Table header (now includes escalation columns)
     print(
-        f"{'#':<5} {'Title':<70} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5} {'Esc':>5} {'Res':>5}"
+        f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5} {'Esc':>5} {'Res':>5}"
     )
-    print("-" * 127)
+    print("-" * 140)
 
     # Table rows
     for num, title, sev, dup_count, pts, rew, mine, esc, res in rows:
         print(
-            f"{str(num):<5} {title:<70} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5} {yesno(esc):>5} {yesno(res):>5}"
+            f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5} {yesno(esc):>5} {yesno(res):>5}"
         )
-
-    print(
-        "\nLegend: Dup = number of duplicates in family, Mine = Y if you submitted in this family, Esc = Y if any issue in family has an escalation, Res = Y if any escalation in family is marked resolved.\n"
-    )
+        
+    print("-" * 140)
+    print("\n=== Invalid issues (escalated) ===\n")
+    print(f"{'#':<5} {'Title':<73} {'Dup':>3} {'Mine':>5} {'Esc':>5} {'Res':>5}")
+    print("-" * 140)
+    for invalidEscalatedIssue in sorted(getInvalidsEscalated(issues.values()), key=lambda i: i.escalation["resolved"], reverse=True):
+        print(
+            f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
+        )
 
 
 if __name__ == "__main__":
