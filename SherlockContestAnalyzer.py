@@ -44,6 +44,49 @@ class Issue:
         self.points:float = 0
         self.reward:float = 0
 
+
+
+def main():
+    severity_label = {1: "High", 2: "Medium"}
+
+    args = parse_args()
+
+    prizePool = args.totalPrizePool
+    totalPoints = 0
+    issues: dict[str, Issue] = {}
+
+    load_dotenv()
+    sherlockAPI = SherlockAPI(args.contestId,os.getenv("SESSION") )
+
+
+    for id,issue in sherlockAPI.getTitles().items():
+        
+        newIssue = Issue(id, issue["number"], issue["title"])
+
+        if issues.get(id) != None:
+            raise RuntimeError("issue was present already")
+        
+        issues[id] = newIssue
+
+    # this directly modifies issues
+    addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
+
+    for issue in issues.values():
+        if issue.isMain:
+            # +1 to include main
+            numberOfReports = 1 + len(issue.duplicates)
+            pts = calculate_issue_points(numberOfReports, issue.severity)
+            issue.points = pts
+            totalPoints += pts * numberOfReports
+            for dup in issue.duplicates:
+                dup.points = pts
+    
+    for issue in issues.values():
+        issue.reward = issue.points / totalPoints * prizePool
+
+    visualizeIssues(severity_label, args.contestId, issues)
+
+
 def getValids(issues: list[Issue]):
     return [issue for issue in issues if issue.severity == 1 or issue.severity == 2]
 
@@ -88,46 +131,6 @@ def truncate(text: str, max_len: int = 70) -> str:
 def yesno(flag: bool) -> str:
     return "Y" if flag else "N"
 
-
-def main():
-    severity_label = {1: "High", 2: "Medium"}
-
-    args = parse_args()
-
-    prizePool = args.totalPrizePool
-    totalPoints = 0
-    issues: dict[str, Issue] = {}
-
-    load_dotenv()
-    sherlockAPI = SherlockAPI(args.contestId,os.getenv("SESSION") )
-
-
-    for id,issue in sherlockAPI.getTitles().items():
-        
-        newIssue = Issue(id, issue["number"], issue["title"])
-
-        if issues.get(id) != None:
-            raise RuntimeError("issue was present already")
-        
-        issues[id] = newIssue
-
-    # this directly modifies issues
-    addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
-
-    for issue in issues.values():
-        if issue.isMain:
-            # +1 to include main
-            numberOfReports = 1 + len(issue.duplicates)
-            pts = calculate_issue_points(numberOfReports, issue.severity)
-            issue.points = pts
-            totalPoints += pts * numberOfReports
-            for dup in issue.duplicates:
-                dup.points = pts
-    
-    for issue in issues.values():
-        issue.reward = issue.points / totalPoints * prizePool
-
-    visualizeIssues(severity_label, args.contestId, issues)
 
 def visualizeIssues(severity_label, contestId, issues):
     my_total_reward = sum(issue.reward for issue in issues.values() if issue.isSubmittedByUser)
