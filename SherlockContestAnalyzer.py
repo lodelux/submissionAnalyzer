@@ -10,8 +10,7 @@ class SherlockAPI:
         self.contest_id = contest_id
         self.sessionId = sessionId
 
-        load_dotenv()
-        sessionId = os.getenv("SESSION")
+
         if sessionId == None:
             raise ValueError("session id is not set in .env")
         self.sessionId = sessionId
@@ -80,6 +79,16 @@ def calculate_issue_points(submissions_count, severity):
     return base_points * (0.9 ** (submissions_count - 1)) / submissions_count
 
 
+def truncate(text: str, max_len: int = 70) -> str:
+    if text is None:
+        return ""
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
+def yesno(flag: bool) -> str:
+    return "Y" if flag else "N"
+
+
 def main():
     severity_label = {1: "High", 2: "Medium"}
 
@@ -87,18 +96,18 @@ def main():
 
     prizePool = args.totalPrizePool
     totalPoints = 0
-
-    sherlockAPI = SherlockAPI(args.contestId, "none")
-
     issues: dict[str, Issue] = {}
 
-    
+    load_dotenv()
+    sherlockAPI = SherlockAPI(args.contestId,os.getenv("SESSION") )
+
+
     for id,issue in sherlockAPI.getTitles().items():
         
         newIssue = Issue(id, issue["number"], issue["title"])
 
         if issues.get(id) != None:
-            raise RuntimeError("issue Id was present already")
+            raise RuntimeError("issue was present already")
         
         issues[id] = newIssue
 
@@ -118,12 +127,47 @@ def main():
     for issue in issues.values():
         issue.reward = issue.points / totalPoints * prizePool
 
-    print(f"my reward: {sum([issue.reward for issue in issues.values() if issue.isSubmittedByUser])}")
-    print(f"issue breakdown for contest {args.contestId}:")
-    for validIssue in sorted(getValids(issues.values()), key=(lambda i: i.reward), reverse=True):
+    visualizeIssues(severity_label, args.contestId, issues)
+
+def visualizeIssues(severity_label, contestId, issues):
+    my_total_reward = sum(issue.reward for issue in issues.values() if issue.isSubmittedByUser)
+
+    # Build rows for valid main issues
+    rows = []
+    for validIssue in sorted(getValids(issues.values()), key=lambda i: i.reward, reverse=True):
         if not validIssue.isMain:
             continue
-        print(f"{validIssue.number} - {validIssue.title} - {severity_label[validIssue.severity]} - {validIssue.reward:.2f} ({validIssue.points:.2f} points)")
+        dups = len(validIssue.duplicates)
+        mine = validIssue.isSubmittedByUser or any(d.isSubmittedByUser for d in validIssue.duplicates)
+        rows.append(
+            (
+                validIssue.number,
+                truncate(validIssue.title, 70),
+                severity_label.get(validIssue.severity, str(validIssue.severity)),
+                dups,
+                validIssue.points,
+                validIssue.reward,
+                mine,
+            )
+        )
+
+    # Header
+    print("\n=== Contest {} — Reward Breakdown ===".format(contestId))
+    print("Your total expected reward: {:.2f}\n".format(my_total_reward))
+
+    # Table header
+    print(
+        f"{'#':<5} {'Title':<70} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
+    )
+    print("-" * 115)
+
+    # Table rows
+    for num, title, sev, dup_count, pts, rew, mine in rows:
+        print(
+            f"{str(num):<5} {title:<70} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5}"
+        )
+
+    print("\nLegend: Dup = number of duplicates in family, Mine = Y if you submitted in this family.\n")
 
     
 
