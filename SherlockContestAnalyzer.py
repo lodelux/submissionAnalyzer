@@ -55,6 +55,7 @@ class Issue:
         self.points: float = 0
         self.reward: float = 0
         self.escalation = {"escalated": False, "resolved": False}
+        self.LJcommented = False
 
 
 def main():
@@ -80,6 +81,9 @@ def main():
 
     # this directly modifies issues
     addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
+
+    if args.comments:
+        addLJcomment(issues, sherlockAPI)
 
     for issue in issues.values():
         if issue.isMain:
@@ -139,6 +143,11 @@ def addJudgingDetails(issues: dict[str, Issue], families):
             dupIssue.escalation["resolved"] = dupDetails["escalation_resolved"]
 
             mainIssue.duplicates.append(dupIssue)
+
+def addLJcomment(issues:dict[str,Issue], sherlockAPI:SherlockAPI):
+    for issue in issues.values():
+        comments = sherlockAPI.getDiscussions(issue.id)["comments"]
+        issue.LJcommented = any(c["is_lead_judge"] for c in comments)
 
 
 def calculate_issue_points(submissions_count, severity):
@@ -210,16 +219,27 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
 
     # Header
     print("\n=== Contest {} — Breakdown ===".format(contestId))
+    totalIssues = len(issues)
+    totalValids = len(getValids(issues.values()))
+
+    myTotalIssues = sum(1 for i in issues.values() if i.isSubmittedByUser)
+    myValidIssues = sum(1 for i in getValids(issues.values()) if i.isSubmittedByUser)
+
     print(
-        f"Total issues: {len(issues)} - your issues: {sum(1 for i in issues.values() if i.isSubmittedByUser and i.severity != 3)}/{sum(1 for i in issues.values() if i.isSubmittedByUser)}"
+        f"Total issues: {totalIssues} - valid issues: {totalValids} - invalid issues: {totalIssues - totalValids} - your total issues: {myTotalIssues} - your valid issues: {myValidIssues} - your invalid issues: {myTotalIssues - myValidIssues} "
     )
     print("Your total expected reward: {:.2f}".format(my_total_reward))
+
+    if args.comments:
+        print(f"LJ commented on {sum(1 for i in issues.values() if i.LJcommented)} issues")
+        
     if args.escalations:
         print(
             "Escalations: {} escalated | {} resolved | {} pending\n".format(
                 total_escalated, total_resolved, total_pending
             )
         )
+    
 
     header =  f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
 
