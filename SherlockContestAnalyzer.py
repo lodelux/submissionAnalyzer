@@ -117,7 +117,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("contestId", type=int, help="Contest ID")
     parser.add_argument("-e","--escalations", action="store_true", help="visualize escalations details")
-    parser.add_argument("-c", "--comments", action="store_true", help="count issues with at least 1 comment from LJ")
+    parser.add_argument("-c", "--comments", action="store_true", help="count (invalid) issues with at least 1 comment from LJ")
     return parser.parse_args()
 
 
@@ -146,8 +146,9 @@ def addJudgingDetails(issues: dict[str, Issue], families):
 
 def addLJcomment(issues:dict[str,Issue], sherlockAPI:SherlockAPI):
     for issue in issues.values():
-        comments = sherlockAPI.getDiscussions(issue.id)["comments"]
-        issue.LJcommented = any(c["is_lead_judge"] for c in comments)
+        if issue.severity == 3:
+            comments = sherlockAPI.getDiscussions(issue.id)["comments"]
+            issue.LJcommented = any(c["is_lead_judge"] for c in comments)
 
 
 def calculate_issue_points(submissions_count, severity):
@@ -231,7 +232,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     print("Your total expected reward: {:.2f}".format(my_total_reward))
 
     if args.comments:
-        print(f"LJ commented on {sum(1 for i in issues.values() if i.LJcommented)} issues")
+        print(f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and  i.LJcommented)} invalid issues")
         
     if args.escalations:
         print(
