@@ -155,7 +155,7 @@ def yesno(flag: bool) -> str:
     return "Y" if flag else "N"
 
 
-def visualizeIssues(severity_label, contestId, issues):
+def visualizeIssues(severity_label, contestId, issues: dict[str, Issue]):
     my_total_reward = sum(
         issue.reward for issue in issues.values() if issue.isSubmittedByUser
     )
@@ -208,6 +208,9 @@ def visualizeIssues(severity_label, contestId, issues):
 
     # Header
     print("\n=== Contest {} — Breakdown ===".format(contestId))
+    print(
+        f"Total issues: {len(issues)} - your issues: {sum(1 for i in issues.values() if i.isSubmittedByUser and i.severity != 3)}/{sum(1 for i in issues.values() if i.isSubmittedByUser)}"
+    )
     print("Your total expected reward: {:.2f}".format(my_total_reward))
     print(
         "Escalations: {} escalated | {} resolved | {} pending\n".format(
@@ -226,12 +229,16 @@ def visualizeIssues(severity_label, contestId, issues):
         print(
             f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5} {yesno(esc):>5} {yesno(res):>5}"
         )
-        
+
     print("-" * 140)
     print("\n=== Invalid issues (escalated) ===\n")
     print(f"{'#':<5} {'Title':<73} {'Dup':>3} {'Mine':>5} {'Esc':>5} {'Res':>5}")
     print("-" * 140)
-    for invalidEscalatedIssue in sorted(getInvalidsEscalated(issues.values()), key=lambda i: i.escalation["resolved"], reverse=True):
+    for invalidEscalatedIssue in sorted(
+        getInvalidsEscalated(issues.values()),
+        key=lambda i: i.escalation["resolved"],
+        reverse=True,
+    ):
         print(
             f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
         )
