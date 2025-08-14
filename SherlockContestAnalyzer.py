@@ -3,6 +3,7 @@ import argparse
 import requests
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 
 class SherlockAPI:
@@ -50,12 +51,16 @@ class Issue:
         self.isMain = False
         self.duplicateOf: Issue = None
         self.duplicates: list[Issue] = []
-        self.comments = []
+        self.comments = [] #ordered from youngest to oldest
         self.severity = None
         self.points: float = 0
         self.reward: float = 0
         self.escalation = {"escalated": False, "resolved": False}
-        self.LJcommented = False
+
+    @property
+    def leadJudgeComments(self):
+        # still ordered from youngest to oldest
+        return [c for c in self.comments if c["is_lead_judge"]]
 
 
 def main():
@@ -83,7 +88,7 @@ def main():
     addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
 
     if args.comments:
-        addLJcomment(issues, sherlockAPI)
+        addComments(issues, sherlockAPI)
 
     for issue in issues.values():
         if issue.isMain:
@@ -116,8 +121,15 @@ def getInvalidsEscalated(issues: list[Issue]):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("contestId", type=int, help="Contest ID")
-    parser.add_argument("-e","--escalations", action="store_true", help="visualize escalations details")
-    parser.add_argument("-c", "--comments", action="store_true", help="count (invalid) issues with at least 1 comment from LJ")
+    parser.add_argument(
+        "-e", "--escalations", action="store_true", help="visualize escalations details"
+    )
+    parser.add_argument(
+        "-c",
+        "--comments",
+        action="store_true",
+        help="count (invalid) issues with at least 1 comment from LJ",
+    )
     return parser.parse_args()
 
 
@@ -144,11 +156,10 @@ def addJudgingDetails(issues: dict[str, Issue], families):
 
             mainIssue.duplicates.append(dupIssue)
 
-def addLJcomment(issues:dict[str,Issue], sherlockAPI:SherlockAPI):
+
+def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
     for issue in issues.values():
-        if issue.severity == 3:
-            comments = sherlockAPI.getDiscussions(issue.id)["comments"]
-            issue.LJcommented = any(c["is_lead_judge"] for c in comments)
+        issue.comments = sorted(sherlockAPI.getDiscussions(issue.id)["comments"], key=lambda c: c.get("created_at"))
 
 
 def calculate_issue_points(submissions_count, severity):
@@ -232,17 +243,24 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     print("Your total expected reward: {:.2f}".format(my_total_reward))
 
     if args.comments:
-        print(f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and  i.LJcommented)} invalid issues")
-        
+        print(
+            f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and  len(i.leadJudgeComments))} invalid issues"
+        )
+
+        allLJComments = []
+        for issue in issues.values():
+            for c in issue.leadJudgeComments:
+                allLJComments.append(c)
+
+        print(f"LJ last commented at {datetime.fromtimestamp(max(c["created_at"] for c in allLJComments)).strftime("%Y-%m-%d %H:%M:%S")}")
     if args.escalations:
         print(
             "Escalations: {} escalated | {} resolved | {} pending\n".format(
                 total_escalated, total_resolved, total_pending
             )
         )
-    
 
-    header =  f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
+    header = f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
 
     if args.escalations:
         header += f" {'Esc':>5} {'Res':>5}"
@@ -254,7 +272,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     for num, title, sev, dup_count, pts, rew, mine, esc, res in rows:
         row = f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5}"
         if args.escalations:
-            row +=f" {yesno(esc):>5} {yesno(res):>5}"
+            row += f" {yesno(esc):>5} {yesno(res):>5}"
         print(row)
 
     print("-" * 140)
