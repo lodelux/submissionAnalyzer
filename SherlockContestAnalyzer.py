@@ -4,6 +4,21 @@ import requests
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+from telegram import Bot
+import asyncio
+
+
+class TelegramBot:
+    def __init__(self, token, chatId):
+        if token == None:
+            raise ValueError("token is not set in .env")
+        if chatId == None:
+            raise ValueError("chat id is not set in .env")
+        self.bot = Bot(token)
+        self.chatId = chatId
+
+    async def sendMessage(self, text):
+       await  self.bot.send_message(chat_id=self.chatId, text=text)
 
 
 class SherlockAPI:
@@ -51,7 +66,7 @@ class Issue:
         self.isMain = False
         self.duplicateOf: Issue = None
         self.duplicates: list[Issue] = []
-        self.comments = [] #ordered from youngest to oldest
+        self.comments = []  # ordered from youngest to oldest
         self.severity = None
         self.points: float = 0
         self.reward: float = 0
@@ -63,7 +78,7 @@ class Issue:
         return [c for c in self.comments if c["is_lead_judge"]]
 
 
-def main():
+async def main():
     severity_label = {1: "High", 2: "Medium"}
 
     args = parse_args()
@@ -73,8 +88,8 @@ def main():
 
     load_dotenv()
     sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION"))
-    prizePool = sherlockAPI.getContest()["prize_pool"]
-
+    telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
+    
     for id, issue in sherlockAPI.getTitles().items():
 
         newIssue = Issue(id, issue["number"], issue["title"])
@@ -99,6 +114,9 @@ def main():
             totalPoints += pts * numberOfReports
             for dup in issue.duplicates:
                 dup.points = pts
+
+
+    prizePool = sherlockAPI.getContest()["prize_pool"]
 
     for issue in issues.values():
         issue.reward = issue.points / totalPoints * prizePool
@@ -159,7 +177,10 @@ def addJudgingDetails(issues: dict[str, Issue], families):
 
 def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
     for issue in issues.values():
-        issue.comments = sorted(sherlockAPI.getDiscussions(issue.id)["comments"], key=lambda c: c.get("created_at"))
+        issue.comments = sorted(
+            sherlockAPI.getDiscussions(issue.id)["comments"],
+            key=lambda c: c.get("created_at"),
+        )
 
 
 def calculate_issue_points(submissions_count, severity):
@@ -247,12 +268,18 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
             f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and  len(i.leadJudgeComments))} invalid issues"
         )
 
-        allLJComments = []
+        lastComment = None
+        lastIssue = None
         for issue in issues.values():
             for c in issue.leadJudgeComments:
-                allLJComments.append(c)
+                if lastComment == None or c["created_at"] > lastComment["created_at"]:
+                    lastComment = c
+                    lastIssue = issue
 
-        print(f"LJ last commented at {datetime.fromtimestamp(max(c["created_at"] for c in allLJComments)).strftime("%Y-%m-%d %H:%M:%S")}")
+        print(
+            f"LJ last commented at {datetime.fromtimestamp(lastComment["created_at"]).strftime("%Y-%m-%d %H:%M:%S")} on issue {lastIssue.number}"
+        )
+
     if args.escalations:
         print(
             "Escalations: {} escalated | {} resolved | {} pending\n".format(
@@ -291,4 +318,4 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
