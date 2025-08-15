@@ -170,7 +170,7 @@ async def main():
             visualizeIssues(severity_label, args.contestId, issues, args)
 
 
-        await asyncio.sleep(os.getenv("TIMEOUTSECONDS"))
+        await asyncio.sleep(int(os.getenv("TIMEOUT_SECONDS")))
 
 
 
