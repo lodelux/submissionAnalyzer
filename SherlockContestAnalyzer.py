@@ -76,6 +76,28 @@ class Issue:
     def leadJudgeComments(self):
         # still ordered from youngest to oldest
         return [c for c in self.comments if c["is_lead_judge"]]
+    
+    def snapshot(self):
+        return (
+            self.id,
+            self.number,
+            self.title,
+            self.isSubmittedByUser,
+            self.isMain,
+            self.severity,
+            tuple(sorted(d.id for d in self.duplicates)),
+            self.duplicateOf.id if self.duplicateOf else None,
+            round(self.points, 8),
+            round(self.reward, 8),
+            (self.escalation.get("escalated", False), self.escalation.get("resolved", False)),
+            tuple(sorted((c.get("id") for c in self.comments))),
+        )
+    
+    def __eq__(self,other):
+        if not isinstance(other, Issue):
+            return NotImplemented
+        return self.snapshot() == other.snapshot()
+
 
 
 async def main():
@@ -83,45 +105,73 @@ async def main():
 
     args = parse_args()
 
-    totalPoints = 0
+    
     issues: dict[str, Issue] = {}
 
     load_dotenv()
     sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION"))
     telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
-    
-    for id, issue in sherlockAPI.getTitles().items():
 
-        newIssue = Issue(id, issue["number"], issue["title"])
+   
+    while True:
+        totalPoints = 0
+        
+        oldIssues = issues.copy()
+        issues =  {}
+        for id, issue in sherlockAPI.getTitles().items():
 
-        if issues.get(id) != None:
-            raise RuntimeError("issue was present already")
+            newIssue = Issue(id, issue["number"], issue["title"])
 
-        issues[id] = newIssue
+            if issues.get(id) != None:
+                raise RuntimeError("issue was present already")
 
-    # this directly modifies issues
-    addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
+            issues[id] = newIssue
 
-    if args.comments:
-        addComments(issues, sherlockAPI)
+        # this directly modifies issues
+        addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
 
-    for issue in issues.values():
-        if issue.isMain:
-            # +1 to include main
-            numberOfReports = 1 + len(issue.duplicates)
-            pts = calculate_issue_points(numberOfReports, issue.severity)
-            issue.points = pts
-            totalPoints += pts * numberOfReports
-            for dup in issue.duplicates:
-                dup.points = pts
+        if args.comments:
+            addComments(issues, sherlockAPI)
+
+        for issue in issues.values():
+            if issue.isMain:
+                # +1 to include main
+                numberOfReports = 1 + len(issue.duplicates)
+                pts = calculate_issue_points(numberOfReports, issue.severity)
+                issue.points = pts
+                totalPoints += pts * numberOfReports
+                for dup in issue.duplicates:
+                    dup.points = pts
 
 
-    prizePool = sherlockAPI.getContest()["prize_pool"]
+        prizePool = sherlockAPI.getContest()["prize_pool"]
 
-    for issue in issues.values():
-        issue.reward = issue.points / totalPoints * prizePool
+        for issue in issues.values():
+            issue.reward = issue.points / totalPoints * prizePool
 
-    visualizeIssues(severity_label, args.contestId, issues, args)
+        if isIssuesMutated(oldIssues, issues):
+            my_total_reward = sum(
+                issue.reward for issue in issues.values() if issue.isSubmittedByUser
+            )
+            my_valid_issues = sum(
+                1 for i in getValids(issues.values()) if i.isSubmittedByUser
+            )
+            my_total_issues = sum(
+                1 for i in issues.values() if i.isSubmittedByUser
+            )
+            total_escalated = sum(1 for i in issues.values() if i.escalation["escalated"])
+            total_resolved = sum(1 for i in issues.values() if i.escalation["resolved"])
+            summary = (
+                f"Reward: {my_total_reward:.2f} | "
+                f"Valid issues: {my_valid_issues}/{my_total_issues} | "
+                f"Escalations resolved: {total_resolved}/{total_escalated}"
+            )
+            await telegramBot.sendMessage(summary)
+            visualizeIssues(severity_label, args.contestId, issues, args)
+
+
+        await asyncio.sleep(os.getenv("TIMEOUTSECONDS"))
+
 
 
 def getValids(issues: list[Issue]):
@@ -251,7 +301,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
         )
 
     # Header
-    print("\n=== Contest {} — Breakdown ===".format(contestId))
+    print(f"{datetime.now().strftime("%d/%m/%Y - %H:%M:%S")}\n=== Contest {contestId} — Breakdown   ===")
     totalIssues = len(issues)
     totalValids = len(getValids(issues.values()))
 
@@ -315,6 +365,19 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
             print(
                 f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
             )
+
+def isIssuesMutated(oldIssues:dict[str,Issue], newIssues:dict[str,Issue]):
+    if set(oldIssues.keys()) != set(newIssues.keys()):
+        return True
+    
+    for k in newIssues.keys():
+        if oldIssues[k] != newIssues[k]:
+            print(oldIssues[k].snapshot())
+            print(newIssues[k].snapshot())
+            return True
+    return False
+        
+
 
 
 if __name__ == "__main__":
