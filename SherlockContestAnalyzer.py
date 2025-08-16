@@ -168,9 +168,11 @@ async def main():
             )
             await telegramBot.sendMessage(summary)
             visualizeIssues(severity_label, args.contestId, issues, args)
-
-
-        await asyncio.sleep(int(os.getenv("TIMEOUT_SECONDS")))
+        
+        timeout = args.timeout
+        if timeout == None:
+            return
+        await asyncio.sleep(args.timeout)
 
 
 
@@ -197,6 +199,12 @@ def parse_args():
         "--comments",
         action="store_true",
         help="count (invalid) issues with at least 1 comment from LJ",
+    )
+    parser.add_argument(
+        "-t", "--timeout",
+        type=int,
+        default=None,
+        help="how much time (in seconds) to sleep before running again. if none then it runs once only"
     )
     return parser.parse_args()
 
