@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from telegram import Bot
 import asyncio
+import time
 
 
 class TelegramBot:
@@ -51,10 +52,22 @@ class SherlockAPI:
         )
 
     def _get_json(self, url):
+        firstTimeout = 1
+        attempts = 0
+        MAX_ATTEMPTS = 15
         headers = {"Cookie": f"session={self.sessionId};"}
-        resp = requests.get(url, headers=headers)
+        resp = None
+        while attempts < MAX_ATTEMPTS:
+            resp = requests.get(url, headers=headers)
+            if resp.status_code != 200:
+                sleepTime = firstTimeout * (2 ** attempts)
+                print(f"attempt {attempts}, retrying in {sleepTime}s")
+                time.sleep(sleepTime)
+                attempts += 1
+
+            else:
+                return resp.json()
         resp.raise_for_status()
-        return resp.json()
 
 
 class Issue:
@@ -90,14 +103,14 @@ class Issue:
             round(self.points, 8),
             round(self.reward, 8),
             (self.escalation.get("escalated", False), self.escalation.get("resolved", False)),
-            tuple(sorted((c.get("id") for c in self.comments))),
+            tuple(sorted((c.get("id") for c in self.leadJudgeComments))),
         )
     
     def __eq__(self,other):
         if not isinstance(other, Issue):
             return NotImplemented
         return self.snapshot() == other.snapshot()
-
+    
 
 
 async def main():
@@ -363,6 +376,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     print("-" * 140)
     if args.escalations:
         print("\n=== Invalid issues (escalated) ===\n")
+        header = f"{'#':<5} {'Title':<73} {'Dup':>3} {'Mine':>5} {'Esc':>5} {'Res':>5}"
         print(header)
         print("-" * 140)
         for invalidEscalatedIssue in sorted(
