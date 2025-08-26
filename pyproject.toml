@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "submission-analyzer"
+version = "0.1.0"
+description = "CLI tool to analyze Sherlock contest issues"
+requires-python = ">=3.10"
+dependencies = [
+  "requests",
+  "python-dotenv",
+  "python-telegram-bot"
+]
+
+[project.scripts]
+sherlock-analyzer = "submission_analyzer.main:main_sync"

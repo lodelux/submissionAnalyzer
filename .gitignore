@@ -1,4 +1,8 @@
 .vscode
 .env
-.venv
+venv
 *.json
+exampleResponses
+.DS_store
+*.egg-info
+__pycache__
