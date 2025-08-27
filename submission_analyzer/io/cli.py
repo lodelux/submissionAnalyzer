@@ -6,15 +6,15 @@ from submission_analyzer.utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("contestId", type=int, help="Contest ID")
+    parser.add_argument("contestId", type=int, help="Contest ID, you can see it in the url when you navigate to any sherlock contest")
     parser.add_argument(
-        "-e", "--escalations", action="store_true", help="visualize escalations details"
+        "-e", "--escalations", action="store_true", help="add escalations details"
     )
     parser.add_argument(
         "-c",
         "--comments",
         action="store_true",
-        help="count (invalid) issues with at least 1 comment from LJ",
+        help="add comments details. notice that with this flag active the script becomes extremely slow as it needs to query the api for each issue",
     )
     parser.add_argument(
         "-t", "--timeout",

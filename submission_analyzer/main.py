@@ -119,11 +119,16 @@ def addJudgingDetails(issues: dict[str, Issue], families):
 
 
 def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
+    count = 0
+    total = len(issues.keys())
     for issue in issues.values():
+        count += 1
+        print(f"Fetching comments for issue {issue.number} - {count}/{total}", end="\r", flush=True )
         issue.comments = sorted(
             sherlockAPI.getDiscussions(issue.id)["comments"],
             key=lambda c: c.get("created_at"),
         )
+    print()
 
 
 

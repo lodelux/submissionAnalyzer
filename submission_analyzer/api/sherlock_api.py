@@ -1,5 +1,5 @@
 import requests
-
+import time
 
 class SherlockAPI:
     def __init__(self, contest_id, sessionId):
@@ -40,7 +40,7 @@ class SherlockAPI:
             resp = requests.get(url, headers=headers)
             if resp.status_code != 200:
                 sleepTime = firstTimeout * (2 ** attempts)
-                print(f"attempt {attempts}, retrying in {sleepTime}s")
+                print(f"NETWORK ERROR: attempt {attempts}, retrying in {sleepTime}s")
                 time.sleep(sleepTime)
                 attempts += 1
 
