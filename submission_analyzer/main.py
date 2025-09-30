@@ -21,7 +21,7 @@ async def main():
     issues: dict[str, Issue] = {}
 
     load_dotenv()
-    sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION"))
+    sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION_SHERLOCK"))
     telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
 
    
