@@ -1,5 +1,4 @@
-import requests
-import time
+from submission_analyzer.utils import get_json_with_retry
 
 class SherlockAPI:
     def __init__(self, contest_id, sessionId):
@@ -31,19 +30,5 @@ class SherlockAPI:
         )
 
     def _get_json(self, url):
-        firstTimeout = 1
-        attempts = 0
-        MAX_ATTEMPTS = 15
         headers = {"Cookie": f"session={self.sessionId};"}
-        resp = None
-        while attempts < MAX_ATTEMPTS:
-            resp = requests.get(url, headers=headers)
-            if resp.status_code != 200:
-                sleepTime = firstTimeout * (2 ** attempts)
-                print(f"NETWORK ERROR: attempt {attempts}, retrying in {sleepTime}s")
-                time.sleep(sleepTime)
-                attempts += 1
-
-            else:
-                return resp.json()
-        resp.raise_for_status()
+        return get_json_with_retry(url, headers=headers)
