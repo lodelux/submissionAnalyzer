@@ -14,7 +14,7 @@ Since sherlock apis require authorization, in order to make this script work you
 - open any get/post request, navigate to the cookie section and copy the `session` id in the `SESSION` entry of the .env
 - rename `.env.example` to `.env`
 - `cd` to the root of this repo
-- install the package locally using `pip install -e .`
+- install the package locally using `pipx install -e .`
 
 To configure the (optional) telegram notifier bot, you need to create your own bot and paste in the .env both the bot token and your chat id, I'll add steps to do so in a future release, for now you can look up how to do so for example using bot father. 
 
