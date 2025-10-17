@@ -102,7 +102,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
                     lastIssue = issue
 
         print(
-            f"LJ last commented at {datetime.fromtimestamp(lastComment["created_at"]).strftime("%Y-%m-%d %H:%M:%S")} on issue {lastIssue.number}"
+            f"LJ last commented at {datetime.fromtimestamp(lastComment['created_at']).strftime('%Y-%m-%d %H:%M:%S')} on issue {lastIssue.number}"
         )
 
     if args.escalations:
@@ -141,4 +141,3 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
             print(
                 f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
             )
-
