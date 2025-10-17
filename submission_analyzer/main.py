@@ -107,8 +107,9 @@ def addJudgingDetails(issues: dict[str, Issue], families):
         mainIssue.escalation["resolved"] = mainDetails["escalation_resolved"]
 
         for dupDetails in family["duplicates"]:
-            dupIssue = issues[str(dupDetails["issue"])]
-
+            dupIssue = issues.get(str(dupDetails["issue"]))
+            if not dupIssue:
+                continue
             dupIssue.isSubmittedByUser = dupDetails["was_submitted_by_user"]
             dupIssue.duplicateOf = mainIssue
             dupIssue.severity = familySeverity
