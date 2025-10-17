@@ -76,7 +76,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
         )
 
     # Header
-    print(f"{datetime.now().strftime("%d/%m/%Y - %H:%M:%S")}\n=== Contest {contestId} — Breakdown   ===")
+    print(f"{datetime.now().strftime('%d/%m/%Y - %H:%M:%S')}\n=== Contest {contestId} — Breakdown   ===")
     totalIssues = len(issues)
     totalValids = len(getValids(issues.values()))
 
