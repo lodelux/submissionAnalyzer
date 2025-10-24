@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
   "requests",
   "python-dotenv",
-  "python-telegram-bot"
+  "python-telegram-bot",
+  "sentry-sdk"
 ]
 
 [project.scripts]

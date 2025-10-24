@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-import os
-from dotenv import load_dotenv
 import asyncio
+import os
+
+from dotenv import load_dotenv
+import sentry_sdk
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
 from submission_analyzer.api.sherlock_api import SherlockAPI
 from submission_analyzer.models.sherlock_issue import Issue
@@ -9,89 +12,102 @@ from submission_analyzer.notifiers.telegram_notifier import TelegramBot
 from submission_analyzer.utils import *
 from submission_analyzer.io import cli
 
-    
-
 
 async def main():
     severity_label = {1: "High", 2: "Medium"}
+    MAX_RETRIES = 5
 
     args = cli.parse_args()
 
-    
     issues: dict[str, Issue] = {}
 
     load_dotenv()
+    setup_sentry()
     sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION_SHERLOCK"))
     telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
 
-   
-    while True:
-        totalPoints = 0
-        
-        oldIssues = issues.copy()
-        issues =  {}
-        for id, issue in sherlockAPI.getTitles().items():
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            totalPoints = 0
 
-            newIssue = Issue(id, issue["number"], issue["title"])
+            oldIssues = issues.copy()
+            issues = {}
+            for id, issue in sherlockAPI.getTitles().items():
 
-            if issues.get(id) != None:
-                raise RuntimeError("issue was present already")
+                newIssue = Issue(id, issue["number"], issue["title"])
 
-            issues[id] = newIssue
+                if issues.get(id) != None:
+                    raise RuntimeError("issue was present already")
 
-        # this directly modifies issues
-        addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
+                issues[id] = newIssue
 
-        if args.comments:
-            addComments(issues, sherlockAPI)
+            # this directly modifies issues
+            addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
 
-        for issue in issues.values():
-            if issue.isMain:
-                # +1 to include main
-                numberOfReports = 1 + len(issue.duplicates)
-                pts = calculate_issue_points(numberOfReports, issue.severity)
-                issue.points = pts
-                totalPoints += pts * numberOfReports
-                for dup in issue.duplicates:
-                    dup.points = pts
+            if args.comments:
+                addComments(issues, sherlockAPI)
+
+            for issue in issues.values():
+                if issue.isMain:
+                    # +1 to include main
+                    numberOfReports = 1 + len(issue.duplicates)
+                    pts = calculate_issue_points(numberOfReports, issue.severity)
+                    issue.points = pts
+                    totalPoints += pts * numberOfReports
+                    for dup in issue.duplicates:
+                        dup.points = pts
+
+            prizePool = sherlockAPI.getContest()["prize_pool"]
+
+            for issue in issues.values():
+                issue.reward = issue.points / totalPoints * prizePool
+
+            if isIssuesMutated(oldIssues, issues):
+                my_total_reward = sum(
+                    issue.reward for issue in issues.values() if issue.isSubmittedByUser
+                )
+                my_valid_issues = sum(
+                    1 for i in getValids(issues.values()) if i.isSubmittedByUser
+                )
+                my_total_issues = sum(1 for i in issues.values() if i.isSubmittedByUser)
+                total_escalated = sum(
+                    1 for i in issues.values() if i.escalation["escalated"]
+                )
+                total_resolved = sum(
+                    1 for i in issues.values() if i.escalation["resolved"]
+                )
+                summary = (
+                    f"Reward: {my_total_reward:.2f} | "
+                    f"Valid issues: {my_valid_issues}/{my_total_issues} | "
+                    f"Escalations resolved: {total_resolved}/{total_escalated}"
+                )
+                await telegramBot.sendMessage(summary)
+                cli.visualizeIssues(severity_label, args.contestId, issues, args)
+
+            timeout = args.timeout
+            if timeout == None:
+                return
+            retries = 0
+        except:
+            retries += 1
+        finally:
+            await asyncio.sleep(args.timeout)
+
+    raise RuntimeError("Exceeded maximum retries")
 
 
-        prizePool = sherlockAPI.getContest()["prize_pool"]
-
-        for issue in issues.values():
-            issue.reward = issue.points / totalPoints * prizePool
-
-        if isIssuesMutated(oldIssues, issues):
-            my_total_reward = sum(
-                issue.reward for issue in issues.values() if issue.isSubmittedByUser
-            )
-            my_valid_issues = sum(
-                1 for i in getValids(issues.values()) if i.isSubmittedByUser
-            )
-            my_total_issues = sum(
-                1 for i in issues.values() if i.isSubmittedByUser
-            )
-            total_escalated = sum(1 for i in issues.values() if i.escalation["escalated"])
-            total_resolved = sum(1 for i in issues.values() if i.escalation["resolved"])
-            summary = (
-                f"Reward: {my_total_reward:.2f} | "
-                f"Valid issues: {my_valid_issues}/{my_total_issues} | "
-                f"Escalations resolved: {total_resolved}/{total_escalated}"
-            )
-            await telegramBot.sendMessage(summary)
-            cli.visualizeIssues(severity_label, args.contestId, issues, args)
-        
-        timeout = args.timeout
-        if timeout == None:
-            return
-        await asyncio.sleep(args.timeout)
-
-
-
-
-
-
-
+def setup_sentry():
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        return
+    # Configure Sentry to report crash-level errors when a DSN is provided.
+    sentry_sdk.init(
+        dsn=dsn,
+        integrations=[AsyncioIntegration()],
+        traces_sample_rate=0.0,
+        send_default_pii=False,
+    )
 
 
 def addJudgingDetails(issues: dict[str, Issue], families):
@@ -124,15 +140,16 @@ def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
     total = len(issues.keys())
     for issue in issues.values():
         count += 1
-        print(f"Fetching comments for issue {issue.number} - {count}/{total}", end="\r", flush=True )
+        print(
+            f"Fetching comments for issue {issue.number} - {count}/{total}",
+            end="\r",
+            flush=True,
+        )
         issue.comments = sorted(
             sherlockAPI.getDiscussions(issue.id)["comments"],
             key=lambda c: c.get("created_at"),
         )
     print()
-
-
-
 
 
 def main_sync():
@@ -141,4 +158,4 @@ def main_sync():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main_sync()
