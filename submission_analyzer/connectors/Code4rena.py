@@ -49,7 +49,6 @@ def _print_findings_summary(findings: dict[str, Finding], prize_pool: float, tot
         "Finding",
         "Severity",
         "Subs",
-        "Validity",
         "Points",
         "Reward",
         "Mine",
@@ -57,6 +56,8 @@ def _print_findings_summary(findings: dict[str, Finding], prize_pool: float, tot
 
     table_rows: list[tuple[str, ...]] = []
     for index, finding in enumerate(sorted_findings, start=1):
+        if finding.validity != "valid" or not (finding.severity == "high" or finding.severity == "medium"):
+            continue
         reward = finding.getSingleReward(prize_pool, total_points)
         table_rows.append(
             (
@@ -64,7 +65,6 @@ def _print_findings_summary(findings: dict[str, Finding], prize_pool: float, tot
                 truncate(finding.title or "-"),
                 finding.severity or "-",
                 str(finding.subs),
-                finding.validity or "-",
                 f"{finding.points:.2f}",
                 f"${reward:,.2f}",
                 "x" if finding.mine else ""
@@ -109,13 +109,13 @@ if __name__ == "__main__":
     totalPoints = 0
     for sub in primaries:
         validity = sub.latest_evaluations.validity if sub.latest_evaluations else "invalid"
-        pts = connector.getFindingPoints(sub.severity, sub.finding_duplicates or 1) if validity == "valid" else 0
+        pts = connector.getFindingPoints(sub.latest_evaluations.severity if sub.latest_evaluations else sub.severity, sub.finding_duplicates or 1) if validity == "valid" else 0
         totalPoints += pts
         findings[sub.finding_uid] = Finding(
             id=sub.finding_uid,
             title = sub.title,
             subs=sub.finding_duplicates or 1,
-            severity=sub.severity,
+            severity=sub.latest_evaluations.severity if sub.latest_evaluations else sub.severity,
             validity=sub.latest_evaluations.validity if sub.latest_evaluations else "invalid",
             points=pts,
         )
@@ -128,7 +128,6 @@ if __name__ == "__main__":
 
     _print_findings_summary(findings, hmPool, totalPoints)
 
-    print(connector.getTotalJudged(submissions))
-
+    print(f'Total judged submissions: {connector.getTotalJudged(submissions)} out of {len(submissions)}')
        
 
