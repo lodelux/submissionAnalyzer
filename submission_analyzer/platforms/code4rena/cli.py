@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Iterable
 from datetime import datetime
 
@@ -47,6 +48,11 @@ def parse_code4rena_args():
         type=int,
         default=70,
         help="Trim finding titles to this length (default: 70).",
+    )
+    parser.add_argument(
+        "--highlight-mine",
+        action="store_true",
+        help="Highlight findings that belong to you when supported by the terminal.",
     )
     return parser.parse_args()
 
@@ -108,6 +114,8 @@ def render_report(report: Code4renaReport, args) -> None:
         ),
     )
 
+    highlight_mine = args.highlight_mine and _stdout_supports_color()
+
     for idx, finding in enumerate(sorted_findings, start=1):
         title = truncate(finding.title, title_width)
         severity = (finding.severity or "-").capitalize()
@@ -122,6 +130,8 @@ def render_report(report: Code4renaReport, args) -> None:
         if has_prize_pool:
             row += f" {reward:>12}"
         row += f" {finding.validity:<10} {yesno(finding.mine):>5}"
+        if highlight_mine and finding.mine:
+            row = _highlight(row)
         print(row)
 
 
@@ -134,3 +144,11 @@ def _filter_findings(findings: Iterable[Finding], include_invalid: bool) -> list
         if include_invalid:
             visible.append(finding)
     return visible
+
+
+def _highlight(text: str) -> str:
+    return f"\033[1;93m{text}\033[0m"
+
+
+def _stdout_supports_color() -> bool:
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()

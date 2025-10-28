@@ -10,7 +10,7 @@ def truncate(text: str, max_len: int = 70) -> str:
 
 
 def yesno(flag: bool) -> str:
-    return "Y" if flag else "N"
+    return "Y" if flag else ""
 
 
 def get_json_with_retry(
