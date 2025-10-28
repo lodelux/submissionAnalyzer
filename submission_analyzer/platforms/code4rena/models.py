@@ -138,6 +138,7 @@ class Finding:
     points: float = 0
     mine: bool = False
     reward: float = 0.0
+    total_reward: float = 0.0
 
     def getSinglePoints(self):
         if self.subs <= 0:
@@ -186,7 +187,6 @@ class Code4renaReport:
     total_judged: int
     prize_pool: float
     my_total_submissions: int
-    my_primary_submissions: int
     total_valid_findings: int
     my_valid_findings: int
     my_reward: float
@@ -203,7 +203,6 @@ class Code4renaReport:
             self.total_judged,
             round(self.prize_pool, 2),
             self.my_total_submissions,
-            self.my_primary_submissions,
             self.total_valid_findings,
             self.my_valid_findings,
             round(self.my_reward, 2),

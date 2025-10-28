@@ -74,10 +74,9 @@ def render_report(report: Code4renaReport, args) -> None:
     )
     if has_prize_pool:
         print(f"Prize pool: ${report.prize_pool:,.2f}")
-    if report.my_total_submissions or report.my_primary_submissions:
+    if report.my_total_submissions:
         print(
             f"My submissions: {report.my_total_submissions} total "
-            f"({report.my_primary_submissions} primary) | "
             f"My valid findings: {report.my_valid_findings}"
         )
     if has_prize_pool and report.my_reward:
@@ -99,7 +98,7 @@ def render_report(report: Code4renaReport, args) -> None:
     )
     if has_prize_pool:
         header += f" {'Reward':>12}"
-    header += f" {'Validity':<10} {'Mine':>5}"
+    header += f" {'Mine':>5}"
 
     divider = "-" * len(header)
     print(header)
@@ -129,7 +128,7 @@ def render_report(report: Code4renaReport, args) -> None:
         )
         if has_prize_pool:
             row += f" {reward:>12}"
-        row += f" {finding.validity:<10} {yesno(finding.mine):>5}"
+        row += f"{yesno(finding.mine):>5}"
         if highlight_mine and finding.mine:
             row = _highlight(row)
         print(row)

@@ -47,16 +47,17 @@ class Code4renaConnector:
         for sub in primaries:
             latest = sub.latest_evaluations
             severity = (
-                (latest.severity if latest and latest.severity else sub.submitted_severity or "")
+                (
+                    latest.severity
+                    if latest and latest.severity
+                    else sub.submitted_severity or ""
+                )
                 .lower()
                 .strip()
             )
             validity = (
-                (latest.validity if latest and latest.validity else "")
-                .lower()
-                .strip()
-                or "unknown"
-            )
+                latest.validity if latest and latest.validity else ""
+            ).lower().strip() or "unknown"
             duplicates = sub.finding_duplicates or 1
             finding_id = sub.finding_uid or sub.uid
             points = self._points_for_finding(severity, validity, duplicates)
@@ -72,7 +73,6 @@ class Code4renaConnector:
             total_points += points
 
         my_total_submissions = 0
-        my_primary_submissions = 0
         if self.user:
             for sub in submissions:
                 if sub.submitter_handle == self.user:
@@ -80,17 +80,20 @@ class Code4renaConnector:
                     finding = findings.get(sub.finding_uid or sub.uid)
                     if finding:
                         finding.mine = True
-            for sub in primaries:
-                if sub.submitter_handle == self.user:
-                    my_primary_submissions += 1
 
         prize_pool = self.prize_pool
-        for finding in findings.values():
-            finding.reward = finding.getSingleReward(prize_pool, total_points)
 
-        my_reward = sum(f.reward for f in findings.values() if f.mine)
-        total_valid_findings = sum(1 for f in findings.values() if f.is_valid)
-        my_valid_findings = sum(1 for f in findings.values() if f.mine and f.is_valid)
+        my_reward = 0.0
+        total_valid_findings = 0
+        my_valid_findings = 0
+        for f in findings.values():
+            f.reward = f.getSingleReward(prize_pool, total_points)
+            f.total_reward = f.getTotalReward(prize_pool, total_points)
+            if f.is_valid:
+                total_valid_findings += 1
+                if f.mine:
+                    my_valid_findings += 1
+                    my_reward += f.reward
 
         return Code4renaReport(
             contest_id=self.contest_id,
@@ -101,7 +104,6 @@ class Code4renaConnector:
             total_judged=self.getTotalJudged(submissions),
             prize_pool=prize_pool,
             my_total_submissions=my_total_submissions,
-            my_primary_submissions=my_primary_submissions,
             total_valid_findings=total_valid_findings,
             my_valid_findings=my_valid_findings,
             my_reward=my_reward,
