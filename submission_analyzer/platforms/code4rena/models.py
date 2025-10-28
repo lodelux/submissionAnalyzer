@@ -68,7 +68,7 @@ class Code4renaIssue:
     uid: str
     number: int
     title: str
-    severity: str
+    submitted_severity: str
     audit_uid: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -103,7 +103,7 @@ class Code4renaIssue:
             uid=payload.get("uid"),
             number=payload.get("number"),
             title=payload.get("title"),
-            severity=payload.get("severity"),
+            submitted_severity=payload.get("severity"),
             audit_uid=payload.get("auditUid"),
             created_at=_parse_datetime(payload.get("createdAt")),
             updated_at=_parse_datetime(payload.get("updatedAt")),

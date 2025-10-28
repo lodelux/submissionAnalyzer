@@ -14,7 +14,7 @@ from .cli import parse_code4rena_args, render_report
 from .connector import Code4renaConnector
 
 MAX_RETRIES = 5
-FALLBACK_RETRY_DELAY = 10
+FALLBACK_RETRY_DELAY = 600
 
 
 async def main():

@@ -31,11 +31,11 @@ class Code4renaConnector:
     def getTotalJudged(self, subs: list[Code4renaIssue]) -> int:
         return sum(1 for s in subs if s.evaluations)
 
-    def getFindingPoints(self, severity: str, subs: int) -> float:
+    def getFindingTotalPoints(self, severity: str, subs: int) -> float:
         if severity == "high":
-            return 10 * (0.85 ** (subs - 1)) / subs
+            return 10 * (0.85 ** (subs - 1))
         if severity == "medium":
-            return 3 * (0.85 ** (subs - 1)) / subs
+            return 3 * (0.85 ** (subs - 1))
         return 0.0
 
     def build_report(self) -> Code4renaReport:
@@ -47,7 +47,7 @@ class Code4renaConnector:
         for sub in primaries:
             latest = sub.latest_evaluations
             severity = (
-                (latest.severity if latest and latest.severity else sub.severity or "")
+                (latest.severity if latest and latest.severity else sub.submitted_severity or "")
                 .lower()
                 .strip()
             )
@@ -86,7 +86,7 @@ class Code4renaConnector:
 
         prize_pool = self.prize_pool
         for finding in findings.values():
-            finding.reward = finding.getTotalReward(prize_pool, total_points)
+            finding.reward = finding.getSingleReward(prize_pool, total_points)
 
         my_reward = sum(f.reward for f in findings.values() if f.mine)
         total_valid_findings = sum(1 for f in findings.values() if f.is_valid)
@@ -118,4 +118,4 @@ class Code4renaConnector:
         if severity not in {"high", "medium"}:
             return 0.0
         duplicates = max(int(duplicates or 1), 1)
-        return float(self.getFindingPoints(severity, duplicates))
+        return float(self.getFindingTotalPoints(severity, duplicates))
