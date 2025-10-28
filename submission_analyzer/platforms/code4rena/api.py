@@ -7,16 +7,21 @@ from dotenv import load_dotenv  # noqa: F401
 from submission_analyzer.utils import get_json_with_retry
 
 from .models import Code4renaIssue
+import requests as r
 
 
 class Code4renaAPI:
     baseUrl = "https://code4rena.com/api/v1"
 
-    def __init__(self, contest_id: str, session_id: str | None):
+    def __init__(self, contest_id: str, username: str, password: str):
         self.contest_id = contest_id
-        if not session_id:
-            raise ValueError("SESSION_CODE4 is not set")
-        self.session_id = session_id
+        self.s = r.sessions.Session()
+        self.login(username, password)
+
+    def login(self, username, password) -> str:
+        nonce = self._get_json(f"{self.baseUrl}/users/nonce?handle={username}")["nonce"]
+        payload = {"nonce": nonce, "handle": username, "password": password}
+        resp = self.s.post(f"{self.baseUrl}/users/session?type=password", payload)
 
     def getAllSubmissions(self) -> list[Code4renaIssue]:
         page = 1
@@ -34,5 +39,4 @@ class Code4renaAPI:
                 return total_submissions
 
     def _get_json(self, url: str) -> dict[str, Any]:
-        headers = {"Cookie": f"C4AUTH-LOGIN={self.session_id};"}
-        return get_json_with_retry(url, headers=headers)
+        return get_json_with_retry(url, session=self.s)

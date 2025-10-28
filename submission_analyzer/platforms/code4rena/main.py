@@ -23,16 +23,19 @@ async def main():
     load_dotenv()
     setup_sentry()
 
-    session_id = os.getenv("SESSION_CODE4")
+    user = os.getenv("CODE4_USER").strip()
+    password = os.getenv("CODE4_PASS").strip()
+
     contest_id = args.contestId
     handle = (args.user or os.getenv("CODE4RENA_HANDLE", "")).strip()
     prize_pool = _resolve_prize_pool(args.prize_pool)
 
     connector = Code4renaConnector(
         contest_id,
-        session_id,
+        user,
+        password,
         prize_pool=prize_pool,
-        user=handle,
+        handle=handle,
     )
 
     telegram_bot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
@@ -48,7 +51,7 @@ async def main():
             snapshot = report.snapshot()
             if snapshot != last_snapshot:
                 render_report(report, args)
-                summary = _build_notification_summary(report, connector.user)
+                summary = _build_notification_summary(report, connector.handle)
                 if summary:
                     await telegram_bot.sendMessage(summary)
                 last_snapshot = snapshot

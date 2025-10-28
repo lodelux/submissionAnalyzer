@@ -18,12 +18,13 @@ def get_json_with_retry(
     headers: dict[str, str] | None = None,
     max_attempts: int = 15,
     first_timeout: float = 1.0,
+    session: requests.sessions.Session | None = None,
 ):
     attempts = 0
     headers = headers or {}
     resp = None
     while attempts < max_attempts:
-        resp = requests.get(url, headers=headers)
+        resp = session.get(url) if session else  requests.get(url, headers=headers)
         if resp.status_code == 200:
             return resp.json()
         sleep_time = first_timeout * (2 ** attempts)

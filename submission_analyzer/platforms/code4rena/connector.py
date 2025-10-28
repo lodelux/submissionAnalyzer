@@ -8,14 +8,15 @@ class Code4renaConnector:
     def __init__(
         self,
         contest_id: str,
-        session_id: str | None,
+        username: str,
+        password: str,
         prize_pool: float | None = None,
-        user: str | None = "",
+        handle: str | None = "",
     ):
-        self.api = Code4renaAPI(contest_id, session_id)
+        self.api = Code4renaAPI(contest_id, username, password)
         self.contest_id = contest_id
         self.prize_pool = float(prize_pool) if prize_pool not in (None, "") else 0.0
-        self.user = (user or "").strip()
+        self.handle = (handle or "").strip()
 
     def getAllSubmissions(self) -> list[Code4renaIssue]:
         return self.api.getAllSubmissions()
@@ -24,9 +25,9 @@ class Code4renaConnector:
         return [s for s in subs if s.is_primary]
 
     def getMySubs(self, subs: list[Code4renaIssue]) -> list[Code4renaIssue]:
-        if not self.user:
+        if not self.handle:
             return []
-        return [s for s in subs if s.submitter_handle == self.user]
+        return [s for s in subs if s.submitter_handle == self.handle]
 
     def getTotalJudged(self, subs: list[Code4renaIssue]) -> int:
         return sum(1 for s in subs if s.evaluations)
@@ -73,9 +74,9 @@ class Code4renaConnector:
             total_points += points
 
         my_total_submissions = 0
-        if self.user:
+        if self.handle:
             for sub in submissions:
-                if sub.submitter_handle == self.user:
+                if sub.submitter_handle == self.handle:
                     my_total_submissions += 1
                     finding = findings.get(sub.finding_uid or sub.uid)
                     if finding:
