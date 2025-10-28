@@ -23,6 +23,49 @@ class SherlockIssue:
     escalation_escalated: bool = False
     escalation_resolved: bool = False
 
+    @classmethod
+    def from_api(cls, issue_id: str, payload: dict[str, Any]) -> "SherlockIssue":
+        return cls(
+            id=str(issue_id),
+            number=int(payload.get("number") or 0),
+            title=str(payload.get("title") or ""),
+        )
+
+    def apply_family_member(
+        self,
+        member_payload: dict[str, Any],
+        *,
+        severity: int | None,
+        is_main: bool,
+        main_issue_id: str | None = None,
+    ) -> None:
+        if severity is not None:
+            self.severity = severity
+        self.is_main = is_main
+        self.is_submitted_by_user = bool(
+            member_payload.get("was_submitted_by_user")
+        )
+        self.escalation_escalated = bool(
+            member_payload.get("has_escalation_comment")
+        )
+        self.escalation_resolved = bool(
+            member_payload.get("escalation_resolved")
+        )
+        if is_main:
+            self.duplicate_of = None
+        elif main_issue_id is not None:
+            self.duplicate_of = main_issue_id
+
+    def add_duplicate(self, duplicate_id: str) -> None:
+        if duplicate_id not in self.duplicate_ids:
+            self.duplicate_ids.append(duplicate_id)
+
+    def attach_comments(self, comments: list[dict[str, Any]]) -> None:
+        self.comments = sorted(
+            comments or [],
+            key=lambda c: c.get("created_at") or 0,
+        )
+
     @property
     def severity_label(self) -> str:
         if self.severity is None:
@@ -69,6 +112,50 @@ class SherlockFinding:
     main: SherlockIssue
     duplicates: list[SherlockIssue] = field(default_factory=list)
 
+    @classmethod
+    def from_api(
+        cls,
+        payload: dict[str, Any],
+        issues: dict[str, SherlockIssue],
+    ) -> "SherlockFinding | None":
+        if not isinstance(payload, dict):
+            return None
+
+        main_details = payload.get("main") or {}
+        main_id = main_details.get("issue")
+        if main_id is None:
+            return None
+
+        main_issue = issues.get(str(main_id))
+        if not main_issue:
+            return None
+
+        severity = payload.get("primary_severity")
+        main_issue.apply_family_member(
+            main_details,
+            severity=severity,
+            is_main=True,
+        )
+
+        duplicates: list[SherlockIssue] = []
+        for dup_details in payload.get("duplicates") or []:
+            dup_id = dup_details.get("issue")
+            if dup_id is None:
+                continue
+            dup_issue = issues.get(str(dup_id))
+            if not dup_issue:
+                continue
+            dup_issue.apply_family_member(
+                dup_details,
+                severity=severity,
+                is_main=False,
+                main_issue_id=main_issue.id,
+            )
+            main_issue.add_duplicate(dup_issue.id)
+            duplicates.append(dup_issue)
+
+        return cls(main=main_issue, duplicates=duplicates)
+
     @property
     def submissions_count(self) -> int:
         return 1 + len(self.duplicates)
@@ -99,6 +186,37 @@ class SherlockFinding:
         if not escalated_members:
             return False
         return all(issue.escalation_resolved for issue in escalated_members)
+
+    def iter_issues(self) -> tuple[SherlockIssue, ...]:
+        return (self.main, *self.duplicates)
+
+    def assign_points(self) -> float:
+        issues = self.iter_issues()
+        for issue in issues:
+            issue.points = 0.0
+
+        if not self.main.is_main or not self.main.is_valid:
+            return 0.0
+
+        from .utils import calculate_issue_points
+
+        submissions_count = self.submissions_count
+        points = calculate_issue_points(submissions_count, self.main.severity)
+        for issue in issues:
+            issue.points = points
+        return points * submissions_count
+
+    def assign_rewards(self, total_points: float, prize_pool: float) -> None:
+        issues = self.iter_issues()
+        if total_points <= 0 or prize_pool <= 0:
+            for issue in issues:
+                issue.reward = 0.0
+            return
+        for issue in issues:
+            if issue.points <= 0:
+                issue.reward = 0.0
+            else:
+                issue.reward = (issue.points / total_points) * prize_pool
 
 
 @dataclass
@@ -137,6 +255,46 @@ class SherlockReport:
             for issue in self.issues.values()
             if issue.severity == 3 and issue.escalation_escalated
         ]
+
+    @classmethod
+    def from_data(
+        cls,
+        *,
+        contest_id: int,
+        issues: dict[str, SherlockIssue],
+        findings: list[SherlockFinding],
+        prize_pool: float,
+        total_points: float,
+    ) -> "SherlockReport":
+        my_total_reward = 0.0
+        my_total_issues = 0
+        my_valid_issues = 0
+        total_escalated = 0
+        total_resolved = 0
+
+        for issue in issues.values():
+            if issue.mine:
+                my_total_issues += 1
+                if issue.is_valid:
+                    my_valid_issues += 1
+                    my_total_reward += issue.reward
+            if issue.escalation_escalated:
+                total_escalated += 1
+            if issue.escalation_resolved:
+                total_resolved += 1
+
+        return cls(
+            contest_id=contest_id,
+            issues=issues,
+            findings=findings,
+            prize_pool=prize_pool,
+            total_points=total_points,
+            my_total_reward=my_total_reward,
+            my_total_issues=my_total_issues,
+            my_valid_issues=my_valid_issues,
+            total_escalated=total_escalated,
+            total_resolved=total_resolved,
+        )
 
     def snapshot(self) -> tuple[Any, ...]:
         issues_snapshot = tuple(
