@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import asyncio
 import os
+import traceback
 
 from dotenv import load_dotenv
-import sentry_sdk
-from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
-from submission_analyzer.api.sherlock_api import SherlockAPI
-from submission_analyzer.models.sherlock_issue import Issue
+from submission_analyzer.monitoring import setup_sentry
 from submission_analyzer.notifiers.telegram_notifier import TelegramBot
-from submission_analyzer.utils import *
-from submission_analyzer.io import cli
+from .api import SherlockAPI
+from .cli import parse_args, visualizeIssues
+from .models import Issue
+from .utils import calculate_issue_points, get_valids, is_issues_mutated
 
 
 async def main():
     severity_label = {1: "High", 2: "Medium"}
     MAX_RETRIES = 5
 
-    args = cli.parse_args()
+    args = parse_args()
 
     issues: dict[str, Issue] = {}
 
@@ -27,6 +29,9 @@ async def main():
     telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
 
     retries = 0
+    timeout = args.timeout
+    sleep_on_error = timeout if timeout and timeout > 0 else 5
+
     while retries < MAX_RETRIES:
         try:
             totalPoints = 0
@@ -37,12 +42,11 @@ async def main():
 
                 newIssue = Issue(id, issue["number"], issue["title"])
 
-                if issues.get(id) != None:
+                if issues.get(id) is not None:
                     raise RuntimeError("issue was present already")
 
                 issues[id] = newIssue
 
-            # this directly modifies issues
             addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
 
             if args.comments:
@@ -50,7 +54,6 @@ async def main():
 
             for issue in issues.values():
                 if issue.isMain:
-                    # +1 to include main
                     numberOfReports = 1 + len(issue.duplicates)
                     pts = calculate_issue_points(numberOfReports, issue.severity)
                     issue.points = pts
@@ -61,14 +64,16 @@ async def main():
             prizePool = sherlockAPI.getContest()["prize_pool"]
 
             for issue in issues.values():
-                issue.reward = issue.points / totalPoints * prizePool
+                issue.reward = (
+                    issue.points / totalPoints * prizePool if totalPoints else 0
+                )
 
-            if isIssuesMutated(oldIssues, issues):
+            if is_issues_mutated(oldIssues, issues):
                 my_total_reward = sum(
                     issue.reward for issue in issues.values() if issue.isSubmittedByUser
                 )
                 my_valid_issues = sum(
-                    1 for i in getValids(issues.values()) if i.isSubmittedByUser
+                    1 for i in get_valids(issues.values()) if i.isSubmittedByUser
                 )
                 my_total_issues = sum(1 for i in issues.values() if i.isSubmittedByUser)
                 total_escalated = sum(
@@ -83,31 +88,19 @@ async def main():
                     f"Escalations resolved: {total_resolved}/{total_escalated}"
                 )
                 await telegramBot.sendMessage(summary)
-                cli.visualizeIssues(severity_label, args.contestId, issues, args)
+                visualizeIssues(severity_label, args.contestId, issues, args)
 
-            timeout = args.timeout
-            if timeout == None:
-                return
             retries = 0
-        except:
+            if timeout is None:
+                return
+            await asyncio.sleep(timeout)
+        except Exception as exc:
             retries += 1
-        finally:
-            await asyncio.sleep(args.timeout)
-
-    raise RuntimeError("Exceeded maximum retries")
-
-
-def setup_sentry():
-    dsn = os.getenv("SENTRY_DSN")
-    if not dsn:
-        return
-    # Configure Sentry to report crash-level errors when a DSN is provided.
-    sentry_sdk.init(
-        dsn=dsn,
-        integrations=[AsyncioIntegration()],
-        traces_sample_rate=0.0,
-        send_default_pii=False,
-    )
+            print(f"[sherlock] error while refreshing data: {exc}")
+            traceback.print_exc()
+            if retries >= MAX_RETRIES:
+                raise RuntimeError("Exceeded maximum retries") from exc
+            await asyncio.sleep(sleep_on_error)
 
 
 def addJudgingDetails(issues: dict[str, Issue], families):
@@ -154,7 +147,6 @@ def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
 
 def main_sync():
     asyncio.run(main())
-
 
 
 if __name__ == "__main__":

@@ -1,12 +1,21 @@
-from datetime import datetime
-import argparse
+from __future__ import annotations
 
-from submission_analyzer.utils import *
+import argparse
+from datetime import datetime
+
+from submission_analyzer.utils import truncate, yesno
+
+from .models import Issue
+from .utils import get_invalids_escalated, get_valids
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("contestId", type=int, help="Contest ID, you can see it in the url when you navigate to any sherlock contest")
+    parser.add_argument(
+        "contestId",
+        type=int,
+        help="Contest ID, you can see it in the URL when you navigate to any Sherlock contest",
+    )
     parser.add_argument(
         "-e", "--escalations", action="store_true", help="add escalations details"
     )
@@ -14,30 +23,32 @@ def parse_args():
         "-c",
         "--comments",
         action="store_true",
-        help="add comments details. notice that with this flag active the script becomes extremely slow as it needs to query the api for each issue",
+        help="add comments details. Notice that with this flag active the script becomes extremely slow as it needs to query the API for each issue",
     )
     parser.add_argument(
-        "-t", "--timeout",
+        "-t",
+        "--timeout",
         type=int,
         default=None,
-        help="how much time (in seconds) to sleep before running again. if none then it runs once only"
+        help="How much time (in seconds) to sleep before running again. When omitted it runs once only",
     )
     return parser.parse_args()
+
 
 def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     my_total_reward = sum(
         issue.reward for issue in issues.values() if issue.isSubmittedByUser
     )
 
-    # Escalations totals across all issues (mains + duplicates)
     total_escalated = sum(1 for i in issues.values() if i.escalation["escalated"])
-    total_resolved = sum(1 for i in issues.values() if i.escalation["escalated"] and  i.escalation["resolved"] )
+    total_resolved = sum(
+        1 for i in issues.values() if i.escalation["escalated"] and i.escalation["resolved"]
+    )
     total_pending = total_escalated - total_resolved
 
-    # Build rows for valid main issues
     rows = []
     for validIssue in sorted(
-        getValids(issues.values()), key=lambda i: i.reward, reverse=True
+        get_valids(issues.values()), key=lambda i: i.reward, reverse=True
     ):
         if not validIssue.isMain:
             continue
@@ -75,13 +86,12 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
             )
         )
 
-    # Header
     print(f"{datetime.now().strftime('%d/%m/%Y - %H:%M:%S')}\n=== Contest {contestId} — Breakdown   ===")
     totalIssues = len(issues)
-    totalValids = len(getValids(issues.values()))
+    totalValids = len(get_valids(issues.values()))
 
     myTotalIssues = sum(1 for i in issues.values() if i.isSubmittedByUser)
-    myValidIssues = sum(1 for i in getValids(issues.values()) if i.isSubmittedByUser)
+    myValidIssues = sum(1 for i in get_valids(issues.values()) if i.isSubmittedByUser)
 
     print(
         f"Total issues: {totalIssues} - valid issues: {totalValids} - invalid issues: {totalIssues - totalValids} - your total issues: {myTotalIssues} - your valid issues: {myValidIssues} - your invalid issues: {myTotalIssues - myValidIssues} "
@@ -90,20 +100,21 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
 
     if args.comments:
         print(
-            f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and  len(i.leadJudgeComments))} invalid issues"
+            f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and len(i.leadJudgeComments))} invalid issues"
         )
 
         lastComment = None
         lastIssue = None
         for issue in issues.values():
             for c in issue.leadJudgeComments:
-                if lastComment == None or c["created_at"] > lastComment["created_at"]:
+                if lastComment is None or c["created_at"] > lastComment["created_at"]:
                     lastComment = c
                     lastIssue = issue
 
-        print(
-            f"LJ last commented at {datetime.fromtimestamp(lastComment['created_at']).strftime('%Y-%m-%d %H:%M:%S')} on issue {lastIssue.number}"
-        )
+        if lastComment:
+            print(
+                f"LJ last commented at {datetime.fromtimestamp(lastComment['created_at']).strftime('%Y-%m-%d %H:%M:%S')} on issue {lastIssue.number}"
+            )
 
     if args.escalations:
         print(
@@ -120,7 +131,6 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
     print(header)
     print("-" * 140)
 
-    # Table rows
     for num, title, sev, dup_count, pts, rew, mine, esc, res in rows:
         row = f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5}"
         if args.escalations:
@@ -134,7 +144,7 @@ def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
         print(header)
         print("-" * 140)
         for invalidEscalatedIssue in sorted(
-            getInvalidsEscalated(issues.values()),
+            get_invalids_escalated(issues.values()),
             key=lambda i: i.escalation["resolved"],
             reverse=True,
         ):

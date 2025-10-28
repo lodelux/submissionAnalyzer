@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 from submission_analyzer.utils import get_json_with_retry
 
-class SherlockAPI:
-    def __init__(self, contest_id, sessionId):
-        self.contest_id = contest_id
-        self.sessionId = sessionId
 
-        if sessionId == None:
-            raise ValueError("session id is not set in .env")
-        self.sessionId = sessionId
+class SherlockAPI:
+    def __init__(self, contest_id: int, session_id: str | None):
+        self.contest_id = contest_id
+        if not session_id:
+            raise ValueError("SESSION_SHERLOCK is not set")
+        self.session_id = session_id
 
     def getTitles(self):
         return self._get_json(
@@ -30,5 +31,5 @@ class SherlockAPI:
         )
 
     def _get_json(self, url):
-        headers = {"Cookie": f"session={self.sessionId};"}
+        headers = {"Cookie": f"session={self.session_id};"}
         return get_json_with_retry(url, headers=headers)

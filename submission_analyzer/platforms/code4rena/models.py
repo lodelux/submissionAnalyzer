@@ -126,8 +126,6 @@ class Code4renaIssue:
     @property
     def is_deleted(self) -> bool:
         return self.deleted_at is not None
-    
-
 
 
 @dataclass
@@ -137,26 +135,77 @@ class Finding:
     subs: int
     severity: str
     validity: str
-    points: int = 0
+    points: float = 0
     mine: bool = False
-
+    reward: float = 0.0
 
     def getSinglePoints(self):
-        return self.points / self.subs 
-    
+        if self.subs <= 0:
+            return 0.0
+        return self.points / self.subs
+
     def getSingleReward(self, prizePool, totalPointsAllFindings):
         if totalPointsAllFindings == 0:
             return 0
         pts = self.getSinglePoints()
         return (pts / totalPointsAllFindings) * prizePool
-    
+
     def getTotalReward(self, prizePool, totalPointsAllFindings):
         if totalPointsAllFindings == 0:
             return 0
         return (self.points / totalPointsAllFindings) * prizePool
-    
+
+    @property
+    def is_valid(self) -> bool:
+        return self.validity == "valid" and self.points > 0
+
+    def snapshot(self):
+        return (
+            self.id,
+            self.subs,
+            self.severity,
+            self.validity,
+            round(self.points, 6),
+            round(self.reward, 2),
+            self.mine,
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, Finding):
+            return NotImplemented
+        return self.snapshot() == other.snapshot()
 
 
-    
+@dataclass
+class Code4renaReport:
+    contest_id: str
+    findings: dict[str, Finding]
+    total_points: float
+    total_submissions: int
+    total_primary: int
+    total_judged: int
+    prize_pool: float
+    my_total_submissions: int
+    my_primary_submissions: int
+    total_valid_findings: int
+    my_valid_findings: int
+    my_reward: float
 
-
+    def snapshot(self):
+        findings_snap = tuple(
+            sorted((fid, finding.snapshot()) for fid, finding in self.findings.items())
+        )
+        return (
+            self.contest_id,
+            round(self.total_points, 6),
+            self.total_submissions,
+            self.total_primary,
+            self.total_judged,
+            round(self.prize_pool, 2),
+            self.my_total_submissions,
+            self.my_primary_submissions,
+            self.total_valid_findings,
+            self.my_valid_findings,
+            round(self.my_reward, 2),
+            findings_snap,
+        )

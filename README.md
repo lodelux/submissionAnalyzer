@@ -1,31 +1,52 @@
 # Contest submissions analyzer
 
-this simple python package extracts a detailed overview of a sherlock contest, calculates your expected payout and the status of the judging.
-
-It can optionally run in a loop and send you updates via telegram whenever there is a change
+This CLI watches Sherlock and Code4rena contests, giving you an at-a-glance breakdown of judging progress, expected rewards, and (optionally) Telegram alerts when something changes.
 
 ## Setup
 
+1. Rename `.env.example` to `.env`.
+2. Populate the environment variables:
+   - **Required**
+     - `SESSION_SHERLOCK`: the `session` cookie from https://audits.sherlock.xyz.
+     - `SESSION_CODE4`: the `C4AUTH-LOGIN` cookie from https://code4rena.com.
+   - **Optional**
+     - `CODE4RENA_HANDLE`: default handle used by the Code4rena analyzer.
+     - `CODE4RENA_PRIZE_POOL`: fallback high/medium prize pool (USD) for Code4rena reports.
+     - `BOT_TOKEN` / `CHAT_ID`: Telegram bot credentials for notifications.
+     - `SENTRY_DSN`: enable crash reporting through Sentry.
+3. Install locally: `pipx install -e .`
 
+### Extracting the session cookies
 
-Since sherlock apis require authorization, in order to make this script work you'll have to manually extract your session token and paste it in the .env file, to do so just 
-- open the dev console on your browser
-- go to sherlock and login if you are not
-- open any get/post request, navigate to the cookie section and copy the `session` id in the `SESSION` entry of the .env
-- rename `.env.example` to `.env`
-- `cd` to the root of this repo
-- install the package locally using `pipx install -e .`
+**Sherlock**
+- Log in, open the browser dev tools, inspect any request, and copy the `session` cookie value into `SESSION_SHERLOCK`.
 
-To configure the (optional) telegram notifier bot, you need to create your own bot and paste in the .env both the bot token and your chat id, I'll add steps to do so in a future release, for now you can look up how to do so for example using bot father. 
+**Code4rena**
+- Log in, open dev tools, inspect any request, and copy the `C4AUTH-LOGIN` cookie value into `SESSION_CODE4`.
 
 ## Usage
 
-`sherlock-analyzer [-h] [-e] [-c] [-t TIMEOUT] contestId`
+Both analyzers accept `-t/--timeout` to keep polling (in seconds). When omitted they run once.
 
-run `sherlock-analyzer -h` for details about each flag
+## Project layout
 
-Example output for `sherlock-analyzer -e 964`
+```
+submission_analyzer/
+└── platforms/
+    ├── sherlock/    # Sherlock CLI, API client, and models
+    └── code4rena/   # Code4rena CLI, connector, and models
+```
 
+### Sherlock
+
+```
+sherlock-analyzer [-h] [-e] [-c] [-t TIMEOUT] contestId
+```
+
+- `-e / --escalations`: show escalations summary.
+- `-c / --comments`: fetch and print Lead Judge comments (slow; one request per issue).
+
+Example output (`sherlock-analyzer -e 964`):
 
 ```
 27/08/2025 - 13:00:08
@@ -77,3 +98,18 @@ Escalations: 35 escalated | 35 resolved | 0 pending
 605   wrong use of index which lead for the function to not work properly         0     N     Y     Y
 722   Pausing minting disables core protocol functionality                        0     N     Y     Y
 ```
+
+### Code4rena
+
+```
+code4rena-analyzer [-h] [-p PRIZE_POOL] [-u USER] [-t TIMEOUT]
+                   [--include-invalid] [--max-title WIDTH]
+                   contestId
+```
+
+- `-p / --prize-pool`: high/medium prize pool allocation in USD (if omitted, rewards stay at $0 unless `CODE4RENA_PRIZE_POOL` is set).
+- `-u / --user`: Code4rena handle (defaults to `CODE4RENA_HANDLE`).
+- `--include-invalid`: display invalid / non-winning findings in the table.
+- `--max-title`: adjust title truncation width.
+
+Both analyzers reuse the same Telegram bot credentials and Sentry DSN. Notifications are sent only when the underlying data changes, keeping noise low while still updating you when judging progresses.
