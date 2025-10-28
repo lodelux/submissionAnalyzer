@@ -2,31 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .models import Issue
+from .models import SherlockIssue
 
 
-def get_valids(issues: Iterable[Issue]) -> list[Issue]:
-    return [issue for issue in issues if issue.severity in (1, 2)]
+def get_valids(issues: Iterable[SherlockIssue]) -> list[SherlockIssue]:
+    return [issue for issue in issues if issue.is_valid]
 
 
-def get_invalids_escalated(issues: Iterable[Issue]) -> list[Issue]:
+def get_invalids_escalated(issues: Iterable[SherlockIssue]) -> list[SherlockIssue]:
     return [
         issue
         for issue in issues
-        if issue.severity == 3 and issue.escalation.get("escalated")
+        if issue.severity == 3 and issue.escalation_escalated
     ]
-
-
-def is_issues_mutated(old: dict[str, Issue], new: dict[str, Issue]) -> bool:
-    if set(old.keys()) != set(new.keys()):
-        return True
-
-    for key in new.keys():
-        if old[key] != new[key]:
-            print(old[key].snapshot())
-            print(new[key].snapshot())
-            return True
-    return False
 
 
 def calculate_issue_points(submissions_count: int, severity: int | None) -> float:

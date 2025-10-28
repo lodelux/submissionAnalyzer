@@ -1,153 +1,206 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 from datetime import datetime
+import sys
 
 from submission_analyzer.utils import truncate, yesno
 
-from .models import Issue
-from .utils import get_invalids_escalated, get_valids
+from .models import SherlockFinding, SherlockIssue, SherlockReport
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_sherlock_args():
+    parser = argparse.ArgumentParser(
+        prog="sherlock-analyzer",
+        description="Analyze Sherlock contest submissions and estimate HM rewards.",
+    )
     parser.add_argument(
         "contestId",
         type=int,
-        help="Contest ID, you can see it in the URL when you navigate to any Sherlock contest",
+        help="Contest ID (visible in the URL when viewing a Sherlock contest).",
     )
     parser.add_argument(
-        "-e", "--escalations", action="store_true", help="add escalations details"
+        "-e",
+        "--escalations",
+        action="store_true",
+        help="Include escalation columns in the report output.",
     )
     parser.add_argument(
         "-c",
         "--comments",
         action="store_true",
-        help="add comments details. Notice that with this flag active the script becomes extremely slow as it needs to query the API for each issue",
+        help=(
+            "Fetch discussion comments for each issue. "
+            "Enabling this requires one request per issue and can be slow."
+        ),
     )
     parser.add_argument(
         "-t",
         "--timeout",
         type=int,
         default=None,
-        help="How much time (in seconds) to sleep before running again. When omitted it runs once only",
+        help="Seconds between refreshes; runs once when omitted.",
+    )
+    parser.add_argument(
+        "--highlight-mine",
+        action="store_true",
+        help="Highlight findings submitted by you when supported by the terminal.",
     )
     return parser.parse_args()
 
 
-def visualizeIssues(severity_label, contestId, issues: dict[str, Issue], args):
-    my_total_reward = sum(
-        issue.reward for issue in issues.values() if issue.isSubmittedByUser
-    )
-
-    total_escalated = sum(1 for i in issues.values() if i.escalation["escalated"])
-    total_resolved = sum(
-        1 for i in issues.values() if i.escalation["escalated"] and i.escalation["resolved"]
-    )
-    total_pending = total_escalated - total_resolved
-
-    rows = []
-    for validIssue in sorted(
-        get_valids(issues.values()), key=lambda i: i.reward, reverse=True
-    ):
-        if not validIssue.isMain:
-            continue
-        dups = len(validIssue.duplicates)
-        mine = validIssue.isSubmittedByUser or any(
-            d.isSubmittedByUser for d in validIssue.duplicates
-        )
-
-        flattenedFamily = validIssue.duplicates.copy()
-        flattenedFamily.append(validIssue)
-
-        family_escalated = validIssue.escalation["escalated"] or any(
-            d.escalation["escalated"] for d in validIssue.duplicates
-        )
-        if not family_escalated:
-            family_resolved = False
-        else:
-            family_resolved = all(
-                i.escalation["resolved"]
-                for i in flattenedFamily
-                if i.escalation["escalated"]
-            )
-
-        rows.append(
-            (
-                validIssue.number,
-                truncate(validIssue.title, 70),
-                severity_label.get(validIssue.severity, str(validIssue.severity)),
-                dups,
-                validIssue.points,
-                validIssue.reward,
-                mine,
-                family_escalated,
-                family_resolved,
-            )
-        )
-
-    print(f"{datetime.now().strftime('%d/%m/%Y - %H:%M:%S')}\n=== Contest {contestId} — Breakdown   ===")
-    totalIssues = len(issues)
-    totalValids = len(get_valids(issues.values()))
-
-    myTotalIssues = sum(1 for i in issues.values() if i.isSubmittedByUser)
-    myValidIssues = sum(1 for i in get_valids(issues.values()) if i.isSubmittedByUser)
+def render_report(report: SherlockReport, args) -> None:
+    timestamp = datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+    print(f"{timestamp}")
+    print(f"=== Sherlock {report.contest_id} — Findings ===")
 
     print(
-        f"Total issues: {totalIssues} - valid issues: {totalValids} - invalid issues: {totalIssues - totalValids} - your total issues: {myTotalIssues} - your valid issues: {myValidIssues} - your invalid issues: {myTotalIssues - myValidIssues} "
+        f"Total issues: {report.total_issues} "
+        f"(valid: {report.total_valid_issues}, invalid: {report.total_invalid_issues})"
     )
-    print("Your total expected reward: {:.2f}".format(my_total_reward))
+    print(f"Total points: {report.total_points:.4f}")
+    if report.prize_pool:
+        print(f"Prize pool: ${report.prize_pool:,.2f}")
 
-    if args.comments:
-        print(
-            f"LJ commented on {sum(1 for i in issues.values() if i.severity == 3 and len(i.leadJudgeComments))} invalid issues"
-        )
-
-        lastComment = None
-        lastIssue = None
-        for issue in issues.values():
-            for c in issue.leadJudgeComments:
-                if lastComment is None or c["created_at"] > lastComment["created_at"]:
-                    lastComment = c
-                    lastIssue = issue
-
-        if lastComment:
-            print(
-                f"LJ last commented at {datetime.fromtimestamp(lastComment['created_at']).strftime('%Y-%m-%d %H:%M:%S')} on issue {lastIssue.number}"
-            )
+    print(
+        f"My issues: {report.my_total_issues} "
+        f"(valid: {report.my_valid_issues}, invalid: {report.my_total_issues - report.my_valid_issues})"
+    )
+    print(f"My expected reward: ${report.my_total_reward:,.2f}")
 
     if args.escalations:
+        pending = max(report.total_escalated - report.total_resolved, 0)
         print(
-            "Escalations: {} escalated | {} resolved | {} pending\n".format(
-                total_escalated, total_resolved, total_pending
-            )
+            f"Escalations: {report.total_escalated} escalated | "
+            f"{report.total_resolved} resolved | {pending} pending"
         )
 
-    header = f"{'#':<5} {'Title':<73} {'Sev':<6} {'Dup':>3} {'Points':>10} {'Reward':>12} {'Mine':>5}"
+    if args.comments:
+        _render_comment_stats(report.issues.values())
 
+    print()
+
+    valid_findings = sorted(
+        report.valid_findings,
+        key=lambda finding: finding.main.reward,
+        reverse=True,
+    )
+
+    if not valid_findings:
+        print("No valid findings available to display.")
+        return
+
+    header = (
+        f"{'#':<5} "
+        f"{'Title':<73} "
+        f"{'Sev':<6} "
+        f"{'Dup':>3} "
+        f"{'Points':>10} "
+        f"{'Reward':>12} "
+        f"{'Mine':>5}"
+    )
     if args.escalations:
         header += f" {'Esc':>5} {'Res':>5}"
 
-    print(header)
-    print("-" * 140)
+    divider = "-" * len(header)
 
-    for num, title, sev, dup_count, pts, rew, mine, esc, res in rows:
-        row = f"{str(num):<5} {title:<73} {sev:<6} {dup_count:>3} {pts:>10.4f} {rew:>12.2f} {yesno(mine):>5}"
-        if args.escalations:
-            row += f" {yesno(esc):>5} {yesno(res):>5}"
+    print(header)
+    print(divider)
+
+    highlight_mine = args.highlight_mine and _stdout_supports_color()
+
+    for finding in valid_findings:
+        row = _format_finding_row(finding, args.escalations)
+        if highlight_mine and finding.mine:
+            row = _highlight(row)
         print(row)
 
-    print("-" * 140)
+    print(divider)
+
     if args.escalations:
-        print("\n=== Invalid issues (escalated) ===\n")
-        header = f"{'#':<5} {'Title':<73} {'Dup':>3} {'Mine':>5} {'Esc':>5} {'Res':>5}"
-        print(header)
-        print("-" * 140)
-        for invalidEscalatedIssue in sorted(
-            get_invalids_escalated(issues.values()),
-            key=lambda i: i.escalation["resolved"],
-            reverse=True,
-        ):
-            print(
-                f"{invalidEscalatedIssue.number:<5} {truncate(invalidEscalatedIssue.title, 73):<73} {len(invalidEscalatedIssue.duplicates):>3} {yesno(invalidEscalatedIssue.isSubmittedByUser):>5} {yesno(invalidEscalatedIssue.escalation['escalated']):>5} {yesno(invalidEscalatedIssue.escalation['resolved']):>5}"
-            )
+        _render_invalid_escalations(report)
+
+
+def _render_comment_stats(issues: Iterable[SherlockIssue]) -> None:
+    issues_list = list(issues)
+    commented_invalid = sum(
+        1 for issue in issues_list if issue.severity == 3 and issue.lead_judge_comments
+    )
+    print(f"LJ commented on {commented_invalid} invalid issues")
+
+    last_comment = None
+    last_issue: SherlockIssue | None = None
+    for issue in issues_list:
+        for comment in issue.lead_judge_comments:
+            candidate_ts = comment.get("created_at") or 0
+            if last_comment is None or candidate_ts > (last_comment.get("created_at") or 0):
+                last_comment = comment
+                last_issue = issue
+
+    if last_comment and last_issue:
+        created_at = last_comment.get("created_at")
+        if created_at:
+            timestamp = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"LJ last commented at {timestamp} on issue {last_issue.number}")
+
+
+def _format_finding_row(finding: SherlockFinding, include_escalations: bool) -> str:
+    title = truncate(finding.main.title, 73)
+    row = (
+        f"{str(finding.main.number):<5} "
+        f"{title:<73} "
+        f"{finding.main.severity_label:<6} "
+        f"{len(finding.duplicates):>3} "
+        f"{finding.main.points:>10.4f} "
+        f"{finding.main.reward:>12.2f} "
+        f"{yesno(finding.mine):>5}"
+    )
+    if include_escalations:
+        row += (
+            f" {yesno(finding.escalation_escalated):>5}"
+            f" {yesno(finding.escalation_resolved):>5}"
+        )
+    return row
+
+
+def _render_invalid_escalations(report: SherlockReport) -> None:
+    issues = sorted(
+        report.invalid_escalated_issues,
+        key=lambda issue: issue.escalation_resolved,
+        reverse=True,
+    )
+    if not issues:
+        return
+
+    print("\n=== Invalid issues (escalated) ===\n")
+    header = (
+        f"{'#':<5} "
+        f"{'Title':<73} "
+        f"{'Dup':>3} "
+        f"{'Mine':>5} "
+        f"{'Esc':>5} "
+        f"{'Res':>5}"
+    )
+    divider = "-" * len(header)
+    print(header)
+    print(divider)
+    for issue in issues:
+        row = (
+            f"{issue.number:<5} "
+            f"{truncate(issue.title, 73):<73} "
+            f"{len(issue.duplicate_ids):>3} "
+            f"{yesno(issue.mine):>5} "
+            f"{yesno(issue.escalation_escalated):>5} "
+            f"{yesno(issue.escalation_resolved):>5}"
+        )
+        print(row)
+    print(divider)
+
+
+def _highlight(text: str) -> str:
+    return f"\033[1;93m{text}\033[0m"
+
+
+def _stdout_supports_color() -> bool:
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()

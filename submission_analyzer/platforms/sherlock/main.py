@@ -4,92 +4,53 @@ from __future__ import annotations
 import asyncio
 import os
 import traceback
+from typing import Any
 
 from dotenv import load_dotenv
 
 from submission_analyzer.monitoring import setup_sentry
 from submission_analyzer.notifiers.telegram_notifier import TelegramBot
-from .api import SherlockAPI
-from .cli import parse_args, visualizeIssues
-from .models import Issue
-from .utils import calculate_issue_points, get_valids, is_issues_mutated
+
+from .cli import parse_sherlock_args, render_report
+from .connector import ProgressCallback, SherlockConnector
+from .models import SherlockIssue, SherlockReport
+
+MAX_RETRIES = 5
+FALLBACK_RETRY_DELAY = 600
 
 
 async def main():
-    severity_label = {1: "High", 2: "Medium"}
-    MAX_RETRIES = 5
-
-    args = parse_args()
-
-    issues: dict[str, Issue] = {}
+    args = parse_sherlock_args()
 
     load_dotenv()
     setup_sentry()
-    sherlockAPI = SherlockAPI(args.contestId, os.getenv("SESSION_SHERLOCK"))
-    telegramBot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
 
+    session_id = os.getenv("SESSION_SHERLOCK")
+    telegram_bot = TelegramBot(os.getenv("BOT_TOKEN"), os.getenv("CHAT_ID"))
+    connector = SherlockConnector(args.contestId, session_id)
+
+    last_snapshot: tuple[Any, ...] | None = None
     retries = 0
     timeout = args.timeout
-    sleep_on_error = timeout if timeout and timeout > 0 else 5
+    retry_delay = timeout if timeout and timeout > 0 else FALLBACK_RETRY_DELAY
+
+    progress_callback: ProgressCallback | None = (
+        _comment_progress if args.comments else None
+    )
 
     while retries < MAX_RETRIES:
         try:
-            totalPoints = 0
-
-            oldIssues = issues.copy()
-            issues = {}
-            for id, issue in sherlockAPI.getTitles().items():
-
-                newIssue = Issue(id, issue["number"], issue["title"])
-
-                if issues.get(id) is not None:
-                    raise RuntimeError("issue was present already")
-
-                issues[id] = newIssue
-
-            addJudgingDetails(issues, sherlockAPI.getJudge()[0]["families"])
-
-            if args.comments:
-                addComments(issues, sherlockAPI)
-
-            for issue in issues.values():
-                if issue.isMain:
-                    numberOfReports = 1 + len(issue.duplicates)
-                    pts = calculate_issue_points(numberOfReports, issue.severity)
-                    issue.points = pts
-                    totalPoints += pts * numberOfReports
-                    for dup in issue.duplicates:
-                        dup.points = pts
-
-            prizePool = sherlockAPI.getContest()["prize_pool"]
-
-            for issue in issues.values():
-                issue.reward = (
-                    issue.points / totalPoints * prizePool if totalPoints else 0
-                )
-
-            if is_issues_mutated(oldIssues, issues):
-                my_total_reward = sum(
-                    issue.reward for issue in issues.values() if issue.isSubmittedByUser
-                )
-                my_valid_issues = sum(
-                    1 for i in get_valids(issues.values()) if i.isSubmittedByUser
-                )
-                my_total_issues = sum(1 for i in issues.values() if i.isSubmittedByUser)
-                total_escalated = sum(
-                    1 for i in issues.values() if i.escalation["escalated"]
-                )
-                total_resolved = sum(
-                    1 for i in issues.values() if i.escalation["resolved"]
-                )
-                summary = (
-                    f"Reward: {my_total_reward:.2f} | "
-                    f"Valid issues: {my_valid_issues}/{my_total_issues} | "
-                    f"Escalations resolved: {total_resolved}/{total_escalated}"
-                )
-                await telegramBot.sendMessage(summary)
-                visualizeIssues(severity_label, args.contestId, issues, args)
-
+            report = connector.build_report(
+                include_comments=args.comments,
+                progress_callback=progress_callback,
+            )
+            snapshot = report.snapshot()
+            if snapshot != last_snapshot:
+                render_report(report, args)
+                summary = _build_notification_summary(report)
+                if summary:
+                    await telegram_bot.sendMessage(summary)
+                last_snapshot = snapshot
             retries = 0
             if timeout is None:
                 return
@@ -100,49 +61,30 @@ async def main():
             traceback.print_exc()
             if retries >= MAX_RETRIES:
                 raise RuntimeError("Exceeded maximum retries") from exc
-            await asyncio.sleep(sleep_on_error)
+            await asyncio.sleep(retry_delay)
+
+    raise RuntimeError("Exceeded maximum retries")
 
 
-def addJudgingDetails(issues: dict[str, Issue], families):
-    for family in families:
-        mainDetails = family["main"]
-        mainIssue = issues[str(mainDetails["issue"])]
-        familySeverity = family["primary_severity"]
-
-        mainIssue.isSubmittedByUser = mainDetails["was_submitted_by_user"]
-        mainIssue.isMain = True
-        mainIssue.severity = familySeverity
-        mainIssue.escalation["escalated"] = mainDetails["has_escalation_comment"]
-        mainIssue.escalation["resolved"] = mainDetails["escalation_resolved"]
-
-        for dupDetails in family["duplicates"]:
-            dupIssue = issues.get(str(dupDetails["issue"]))
-            if not dupIssue:
-                continue
-            dupIssue.isSubmittedByUser = dupDetails["was_submitted_by_user"]
-            dupIssue.duplicateOf = mainIssue
-            dupIssue.severity = familySeverity
-            dupIssue.escalation["escalated"] = dupDetails["has_escalation_comment"]
-            dupIssue.escalation["resolved"] = dupDetails["escalation_resolved"]
-
-            mainIssue.duplicates.append(dupIssue)
+def _build_notification_summary(report: SherlockReport) -> str:
+    return (
+        f"Reward: {report.my_total_reward:.2f} | "
+        f"Valid issues: {report.my_valid_issues}/{report.my_total_issues} | "
+        f"Escalations resolved: {report.total_resolved}/{report.total_escalated}"
+    )
 
 
-def addComments(issues: dict[str, Issue], sherlockAPI: SherlockAPI):
-    count = 0
-    total = len(issues.keys())
-    for issue in issues.values():
-        count += 1
-        print(
-            f"Fetching comments for issue {issue.number} - {count}/{total}",
-            end="\r",
-            flush=True,
-        )
-        issue.comments = sorted(
-            sherlockAPI.getDiscussions(issue.id)["comments"],
-            key=lambda c: c.get("created_at"),
-        )
-    print()
+def _comment_progress(
+    index: int, total: int, issue: SherlockIssue | None
+) -> None:
+    if issue is None:
+        print()
+        return
+    print(
+        f"Fetching comments for issue {issue.number} - {index}/{total}",
+        end="\r",
+        flush=True,
+    )
 
 
 def main_sync():
