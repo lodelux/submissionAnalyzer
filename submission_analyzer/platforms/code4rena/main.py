@@ -23,16 +23,16 @@ async def main():
     load_dotenv()
     setup_sentry()
 
-    user = os.getenv("CODE4_USER").strip()
+    username = os.getenv("CODE4_USER").strip()
     password = os.getenv("CODE4_PASS").strip()
 
     contest_id = args.contestId
-    handle = (args.user or os.getenv("CODE4RENA_HANDLE", "")).strip()
-    prize_pool = _resolve_prize_pool(args.prize_pool)
+    handle = (args.user if args.user else username).strip()
+    prize_pool = args.prize_pool
 
     connector = Code4renaConnector(
         contest_id,
-        user,
+        username,
         password,
         prize_pool=prize_pool,
         handle=handle,
@@ -43,7 +43,9 @@ async def main():
     last_snapshot = None
     retries = 0
     timeout = args.timeout
-    retry_delay = args.timeout if args.timeout and args.timeout > 0 else FALLBACK_RETRY_DELAY
+    retry_delay = (
+        args.timeout if args.timeout and args.timeout > 0 else FALLBACK_RETRY_DELAY
+    )
 
     while retries < MAX_RETRIES:
         try:
@@ -70,19 +72,6 @@ async def main():
     raise RuntimeError("Exceeded maximum retries")
 
 
-def _resolve_prize_pool(cli_value: float | None) -> float | None:
-    if cli_value is not None:
-        return cli_value
-    env_value = os.getenv("CODE4RENA_PRIZE_POOL")
-    if not env_value:
-        return None
-    try:
-        return float(env_value)
-    except ValueError:
-        print(
-            "Warning: CODE4RENA_PRIZE_POOL is not a valid number, ignoring environment override."
-        )
-        return None
 
 
 def _build_notification_summary(report, handle: str | None) -> str:

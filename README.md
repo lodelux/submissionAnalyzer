@@ -6,23 +6,28 @@ This CLI watches Sherlock and Code4rena contests, giving you an at-a-glance brea
 
 1. Rename `.env.example` to `.env`.
 2. Populate the environment variables:
-   - **Required**
+
+   - **Required for Sherlock**
      - `SESSION_SHERLOCK`: the `session` cookie from https://audits.sherlock.xyz.
-     - `SESSION_CODE4`: the `C4AUTH-LOGIN` cookie from https://code4rena.com.
+   - **Required for Code4rena**
+   - `CODE4_USER`: your Code4rena handle (used for authenticating the API).
+   - `CODE4_PASS`: the password for the Code4rena account referenced by `CODE4_USER`.
+
    - **Optional**
-     - `CODE4RENA_HANDLE`: default handle used by the Code4rena analyzer.
-     - `CODE4RENA_PRIZE_POOL`: fallback high/medium prize pool (USD) for Code4rena reports.
      - `BOT_TOKEN` / `CHAT_ID`: Telegram bot credentials for notifications.
      - `SENTRY_DSN`: enable crash reporting through Sentry.
+
 3. Install locally: `pipx install -e .`
 
 ### Extracting the session cookies
 
 **Sherlock**
+
 - Log in, open the browser dev tools, inspect any request, and copy the `session` cookie value into `SESSION_SHERLOCK`.
 
 **Code4rena**
-- Log in, open dev tools, inspect any request, and copy the `C4AUTH-LOGIN` cookie value into `SESSION_CODE4`.
+
+- Set `CODE4_USER` to your Code4rena handle and `CODE4_PASS` to the corresponding password (used to acquire an API session automatically). These variables must be present in your environment (or `.env`) before running the Code4rena analyzer.
 
 ## Usage
 
@@ -51,7 +56,7 @@ Example output (`sherlock-analyzer -e 964`):
 ```
 27/08/2025 - 13:00:08
 === Contest 964 — Breakdown   ===
-Total issues: 710 - valid issues: 232 - invalid issues: 478 - your total issues: 6 - your valid issues: 5 - your invalid issues: 1 
+Total issues: 710 - valid issues: 232 - invalid issues: 478 - your total issues: 6 - your valid issues: 5 - your invalid issues: 1
 Your total expected reward: 2081.18
 Escalations: 35 escalated | 35 resolved | 0 pending
 
@@ -104,12 +109,13 @@ Escalations: 35 escalated | 35 resolved | 0 pending
 ```
 code4rena-analyzer [-h] [-p PRIZE_POOL] [-u USER] [-t TIMEOUT]
                    [--include-invalid] [--max-title WIDTH]
-                   contestId
+                   [--highlight-mine] contestId
 ```
 
 - `-p / --prize-pool`: high/medium prize pool allocation in USD (if omitted, rewards stay at $0 unless `CODE4RENA_PRIZE_POOL` is set).
 - `-u / --user`: Code4rena handle (defaults to `CODE4RENA_HANDLE`).
 - `--include-invalid`: display invalid / non-winning findings in the table.
 - `--max-title`: adjust title truncation width.
+- `--highlight-mine`: color rows that match your handle when the terminal supports ANSI colors.
 
 Both analyzers reuse the same Telegram bot credentials and Sentry DSN. Notifications are sent only when the underlying data changes, keeping noise low while still updating you when judging progresses.

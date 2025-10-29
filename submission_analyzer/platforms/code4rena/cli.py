@@ -124,7 +124,7 @@ def render_report(report: Code4renaReport, args) -> None:
             f"{title:<{title_width}} "
             f"{severity:<6} "
             f"{finding.subs:>4} "
-            f"{finding.points:>9.4f}"
+            f"{finding.getSinglePoints():>9.4f}"
         )
         if has_prize_pool:
             row += f" {reward:>12}"
